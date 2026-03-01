@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "UXpact Pulse",
+  "version": "0.0.1",
+  "description": "UXpact Pulse extension scaffold.",
+  "action": {
+    "default_title": "UXpact Pulse"
+  },
+  "permissions": []
+}
