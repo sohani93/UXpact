@@ -15,6 +15,7 @@ export async function saveAuditResults(
   industry: Industry,
   scores: AuditScores,
   findings: CheckResult[],
+  domData: Record<string, unknown>,
   pagespeedData?: { performance: number; seo: number; accessibility: number; bestPractices: number } | null,
   securityGrade?: string | null,
 ): Promise<string | null> {
@@ -39,6 +40,7 @@ export async function saveAuditResults(
       pagespeed_performance: pagespeedData?.performance ?? null,
       pagespeed_seo: pagespeedData?.seo ?? null,
       security_grade: securityGrade ?? null,
+      dom_data: domData,
       completed_at: new Date().toISOString(),
     })
     .select("id")
@@ -59,6 +61,7 @@ export async function saveAuditResults(
     score: finding.score,
     finding: finding.finding,
     fix: finding.fix,
+    ai_prompt: finding.aiPrompt ?? "",
     manual_review: finding.manualReview,
   }));
 

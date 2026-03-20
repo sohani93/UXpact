@@ -36,14 +36,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const targetUrl = new URL(payload.url);
     const fetchResult = await fetchHtml(targetUrl.toString());
     if (!fetchResult.success) {
-      return jsonResponse({ success: false, status: "failed_unreachable", error: fetchResult.error }, 502);
+      return jsonResponse({ error: "URL_UNREACHABLE", message: fetchResult.error }, 502);
     }
 
     const { html, response } = fetchResult;
     const scriptCount = countMatches(html, /<script\b/gi);
     const strippedText = stripHtmlToText(html);
     if (strippedText.length < 200 && scriptCount > 5) {
-      return jsonResponse({ success: false, status: "failed_spa", error: "Page appears to be a JavaScript-rendered SPA with insufficient server-rendered content." }, 422);
+      return jsonResponse({
+        error: "SPA_DETECTED",
+        partial: true,
+        message: "Page appears to be JavaScript-rendered with limited server HTML.",
+      }, 422);
     }
 
     const doc = new DOMParser().parseFromString(html, "text/html");
@@ -72,12 +76,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const scores = calculateScores(findings);
     const topFindings = getTopFindings(findings, 5);
+    const domData = {
+      navLinks: metadata.navLinks.map((link) => link.text).filter(Boolean).slice(0, 10),
+      h1Text: metadata.h1s[0]?.text ?? metadata.title ?? metadata.domain,
+      h2Texts: metadata.headingHierarchy.filter((entry) => entry.tag === "h2").map((entry) => entry.text).filter(Boolean).slice(0, 10),
+      h3Texts: metadata.headingHierarchy.filter((entry) => entry.tag === "h3").map((entry) => entry.text).filter(Boolean).slice(0, 10),
+      ctaTexts: metadata.ctas.map((cta) => cta.text).filter(Boolean).slice(0, 10),
+      paragraphTexts: metadata.paragraphs.slice(0, 20),
+      imagesCount: metadata.imageCount,
+      hasForm: metadata.formCount > 0,
+    };
     const auditId = await saveAuditResults(
       metadata.url,
       metadata.domain,
       payload.industry,
       scores,
       findings,
+      domData,
       pageSpeedData,
       securityGrade,
     );
@@ -88,15 +103,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
       scores,
       findings,
       topFindings,
+      domData,
       pagespeed: pageSpeedData,
       securityGrade,
       metadata,
     }, 200);
   } catch (error) {
     return jsonResponse({
-      success: false,
-      status: "failed_error",
-      error: error instanceof Error ? error.message : "Unexpected error",
+      error: "PROCESSING_ERROR",
+      message: error instanceof Error ? error.message : "Unexpected error",
     }, 500);
   }
 });

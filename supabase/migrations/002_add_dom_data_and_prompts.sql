@@ -1,0 +1,9 @@
+ALTER TABLE audits
+ADD COLUMN IF NOT EXISTS dom_data JSONB DEFAULT '{}'::jsonb;
+
+ALTER TABLE audit_findings
+ADD COLUMN IF NOT EXISTS ai_prompt TEXT DEFAULT '';
+
+ALTER TABLE pulse_checklists
+ADD COLUMN IF NOT EXISTS pulse_status TEXT DEFAULT 'Active',
+ADD COLUMN IF NOT EXISTS pulse_completed_at TIMESTAMPTZ;

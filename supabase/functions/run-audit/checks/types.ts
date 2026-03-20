@@ -11,6 +11,9 @@ export interface CheckResult {
   severity: Severity;
   finding: string;
   fix: string;
+  aiPrompt?: string;
+  domZone?: "hero" | "nav" | "cta" | "social-proof" | "body-copy" | "footer";
+  glossaryTerms?: string[];
   category: string;
   part: CheckPart;
   manualReview: boolean;
