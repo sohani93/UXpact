@@ -42,3 +42,32 @@ input,textarea,select { width: 100%; border-radius: 10px; border: 1px solid #d1d
 .pin { border:0; color:white; border-radius:999px; width:28px; height:28px; }
 .pin.critical{background:#ef4444}.pin.major{background:#f59e0b}.pin.minor{background:#eab308}
 .drawer { padding: 18px; }
+
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #148C59;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  cursor: pointer;
+}
+input[type='range']::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #148C59;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  cursor: pointer;
+}
