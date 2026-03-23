@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import type { AuditRequestFormData } from "../lib/ui-types";
 
 const INDUSTRIES = [
@@ -53,61 +53,46 @@ export default function EngineInput({ onSubmit, initialForm }: EngineInputProps)
   );
   const UrgencySlider = () => {
     const labels = ["Just curious", "Minor tweaks", "Some friction", "Real problems", "Nothing converts"];
+    const trackRef = useRef<HTMLDivElement>(null);
+    const [trackWidth, setTrackWidth] = useState(0);
+    useEffect(() => {
+      const measure = () => { if (trackRef.current) setTrackWidth(trackRef.current.getBoundingClientRect().width); };
+      measure();
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }, []);
+    const thumbLeft = trackWidth > 0 ? (challenge / 4) * trackWidth - 11 : `calc(${challenge * 25}% - 11px)`;
     return (
-      <div style={{ padding: "0 11px" }}>
+      <div>
         <div
-          style={{ position: "relative", height: 20, marginBottom: 12, cursor: "pointer" }}
+          ref={trackRef}
+          style={{ position: "relative", height: 22, marginBottom: 10, cursor: "pointer" }}
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             const pct = (e.clientX - rect.left) / rect.width;
             setChallenge(Math.round(pct * 4));
           }}
         >
-          <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: 0,
-              right: 0,
-              height: 6,
-              transform: "translateY(-50%)",
-              borderRadius: 3,
-              background: "linear-gradient(90deg, #14D571 0%, #148C59 50%, #5B61F4 100%)",
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              transform: "translateY(-50%)",
-              left: `calc(${challenge * 25}% - 11px)`,
-              width: 22,
-              height: 22,
-              borderRadius: "50%",
-              background: "#fff",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
-              pointerEvents: "none",
-              transition: "left 0.15s",
-            }}
-          />
+          <div style={{
+            position: "absolute", top: "50%", left: 0, right: 0,
+            height: 6, transform: "translateY(-50%)", borderRadius: 3,
+            background: "linear-gradient(90deg, #14D571 0%, #148C59 50%, #5B61F4 100%)",
+          }} />
+          <div style={{
+            position: "absolute", top: "50%", transform: "translateY(-50%)",
+            left: typeof thumbLeft === "number" ? thumbLeft : thumbLeft,
+            width: 22, height: 22, borderRadius: "50%",
+            background: "#fff", boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
+            pointerEvents: "none", transition: "left 0.15s",
+          }} />
         </div>
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
+        <div style={{ display: "flex" }}>
           {labels.map((l, i) => (
-            <span
-              key={i}
-              style={{
-                fontSize: 10.5,
-                textAlign: "center",
-                flex: 1,
-                color: challenge === i ? "#0B1C48" : "#9CA3AF",
-                fontWeight: challenge === i ? 600 : 400,
-                transition: "all 0.2s",
-                cursor: "pointer",
-              }}
-              onClick={() => setChallenge(i)}
-            >
-              {l}
-            </span>
+            <span key={i} onClick={() => setChallenge(i)} style={{
+              flex: 1, fontSize: 10.5, textAlign: "center", cursor: "pointer",
+              color: challenge === i ? "#0B1C48" : "#9CA3AF",
+              fontWeight: challenge === i ? 600 : 400, transition: "all 0.2s",
+            }}>{l}</span>
           ))}
         </div>
       </div>
