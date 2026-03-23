@@ -54,7 +54,7 @@ export default function EngineInput({ onSubmit, initialForm }: EngineInputProps)
   const UrgencySlider = () => {
     const labels = ["Just curious", "Minor tweaks", "Some friction", "Real problems", "Nothing converts"];
     return (
-      <div style={{ padding: "0 2px" }}>
+      <div style={{ padding: "0 11px" }}>
         <div
           style={{ position: "relative", height: 20, marginBottom: 12, cursor: "pointer" }}
           onClick={(e) => {
@@ -80,7 +80,7 @@ export default function EngineInput({ onSubmit, initialForm }: EngineInputProps)
               position: "absolute",
               top: "50%",
               transform: "translateY(-50%)",
-              left: `calc(${challenge * 25}% - ${2.75 + challenge * 5.5}px)`,
+              left: `calc(${challenge * 25}% - 11px)`,
               width: 22,
               height: 22,
               borderRadius: "50%",
