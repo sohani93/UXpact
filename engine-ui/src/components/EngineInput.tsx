@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import type { AuditRequestFormData } from "../lib/ui-types";
-import "./EngineInput.css";
 
 const INDUSTRIES = [
   { value: "saas", label: "SaaS / Software" },
@@ -93,6 +92,7 @@ export default function EngineInput({ onSubmit, initialForm }: EngineInputProps)
           <div style={{ ...glass, padding: "22px 18px", display: "flex", flexDirection: "column" }}>{cTitle(<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" stroke="#148C59" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>, "Your Audit Pack")}<div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>{[{ label: "WHAT YOU'LL GET", title: "Download PDF", desc: "Save it, share it, hand it to your dev.", bg: "linear-gradient(135deg, rgba(20,213,113,0.12), rgba(20,140,89,0.06))", color: "#148C59" },{ label: "FIX PROMPTS", title: "Conversion Blueprint", desc: "AI-ready fix prompts for Cursor, Claude Code, Lovable.", bg: "linear-gradient(135deg, rgba(91,97,244,0.12), rgba(91,97,244,0.05))", color: "#5B61F4" },{ label: "TRACK YOUR FIXES", title: "Start Pulse Tracker", desc: "Track every fix as you go. Know when you're done.", bg: "linear-gradient(135deg, rgba(20,140,89,0.10), rgba(20,213,113,0.05))", color: "#148C59" }].map((c, i) => (<div key={i} style={{ padding: "18px 16px", borderRadius: 10, background: c.bg, border: "1px solid rgba(255,255,255,0.5)", boxShadow: "0 2px 8px rgba(0,0,0,0.03), inset 0 1px 0 rgba(255,255,255,0.5)", flex: 1, display: "flex", alignItems: "flex-start", gap: 12 }}><div style={{ minWidth: 0 }}><div style={{ fontSize: 10, fontWeight: 600, color: c.color, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3 }}>{c.label}</div><div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 12, fontWeight: 660, color: "#0B1C48", marginBottom: 4, lineHeight: 1.3 }}>{c.title}</div><div style={{ fontSize: 11.5, color: "#6B7280", lineHeight: 1.45 }}>{c.desc}</div></div></div>))}</div></div>
         </div>
       </div>
+      <style>{`* { box-sizing: border-box; margin: 0; } body { margin: 0; } ::placeholder { color: #9CA3AF; font-family: 'Space Grotesk', sans-serif; font-weight: 400; } select { font-family: 'Space Grotesk', sans-serif; }`}</style>
     </div>
   );
 }
