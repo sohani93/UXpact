@@ -69,9 +69,9 @@ export default function EngineInput({ onSubmit, initialForm }: EngineInputProps)
               top: "50%",
               left: 0,
               right: 0,
-              height: 14,
+              height: 6,
               transform: "translateY(-50%)",
-              borderRadius: 7,
+              borderRadius: 3,
               background: "linear-gradient(90deg, #14D571 0%, #148C59 50%, #5B61F4 100%)",
             }}
           />
@@ -80,7 +80,7 @@ export default function EngineInput({ onSubmit, initialForm }: EngineInputProps)
               position: "absolute",
               top: "50%",
               transform: "translateY(-50%)",
-              left: `calc(${(challenge / 4) * 100}% - 11px)`,
+              left: `calc(${challenge * 25}% - 11px)`,
               width: 22,
               height: 22,
               borderRadius: "50%",
