@@ -1,4 +1,4 @@
-.uxpact-slider {
+input[type="range"].uxpact-slider {
   -webkit-appearance: none;
   appearance: none;
   background: linear-gradient(90deg, #14D571 0%, #148C59 50%, #5B61F4 100%);
@@ -9,7 +9,7 @@
   cursor: pointer;
   margin: 0;
 }
-.uxpact-slider::-webkit-slider-thumb {
+input[type="range"].uxpact-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 20px;
   height: 20px;
@@ -20,7 +20,7 @@
   cursor: pointer;
   margin-top: -7px;
 }
-.uxpact-slider::-moz-range-thumb {
+input[type="range"].uxpact-slider::-moz-range-thumb {
   width: 20px;
   height: 20px;
   border-radius: 50%;
@@ -29,13 +29,13 @@
   box-shadow: 0 2px 8px rgba(0,0,0,0.18);
   cursor: pointer;
 }
-.uxpact-slider::-webkit-slider-runnable-track {
-  height: 6px;
+input[type="range"].uxpact-slider::-webkit-slider-runnable-track {
+  height: 6px !important;
   border-radius: 3px;
-  background: linear-gradient(90deg, #14D571 0%, #148C59 50%, #5B61F4 100%);
+  background: linear-gradient(90deg, #14D571 0%, #148C59 50%, #5B61F4 100%) !important;
 }
-.uxpact-slider::-moz-range-track {
-  height: 6px;
+input[type="range"].uxpact-slider::-moz-range-track {
+  height: 6px !important;
   border-radius: 3px;
-  background: linear-gradient(90deg, #14D571 0%, #148C59 50%, #5B61F4 100%);
+  background: linear-gradient(90deg, #14D571 0%, #148C59 50%, #5B61F4 100%) !important;
 }
