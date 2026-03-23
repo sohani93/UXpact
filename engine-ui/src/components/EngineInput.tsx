@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState } from "react";
 import type { AuditRequestFormData } from "../lib/ui-types";
 
 const INDUSTRIES = [
@@ -53,19 +53,9 @@ export default function EngineInput({ onSubmit, initialForm }: EngineInputProps)
   );
   const UrgencySlider = () => {
     const labels = ["Just curious", "Minor tweaks", "Some friction", "Real problems", "Nothing converts"];
-    const trackRef = useRef<HTMLDivElement>(null);
-    const [trackWidth, setTrackWidth] = useState(0);
-    useEffect(() => {
-      const measure = () => { if (trackRef.current) setTrackWidth(trackRef.current.getBoundingClientRect().width); };
-      measure();
-      window.addEventListener("resize", measure);
-      return () => window.removeEventListener("resize", measure);
-    }, []);
-    const thumbLeft = trackWidth > 0 ? (challenge / 4) * trackWidth - 11 : `calc(${challenge * 25}% - 11px)`;
     return (
       <div>
         <div
-          ref={trackRef}
           style={{ position: "relative", height: 22, marginBottom: 10, cursor: "pointer" }}
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
@@ -80,7 +70,7 @@ export default function EngineInput({ onSubmit, initialForm }: EngineInputProps)
           }} />
           <div style={{
             position: "absolute", top: "50%", transform: "translateY(-50%)",
-            left: typeof thumbLeft === "number" ? thumbLeft : thumbLeft,
+            left: `calc(${10 + challenge * 20}% - 11px)`,
             width: 22, height: 22, borderRadius: "50%",
             background: "#fff", boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
             pointerEvents: "none", transition: "left 0.15s",
