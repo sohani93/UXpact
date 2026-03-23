@@ -80,7 +80,7 @@ export default function EngineInput({ onSubmit, initialForm }: EngineInputProps)
               position: "absolute",
               top: "50%",
               transform: "translateY(-50%)",
-              left: `calc(${challenge * 25}% - 11px)`,
+              left: `calc(${challenge * 25}% - ${2.75 + challenge * 5.5}px)`,
               width: 22,
               height: 22,
               borderRadius: "50%",
