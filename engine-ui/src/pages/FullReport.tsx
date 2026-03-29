@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 const C = {
   bg: "#EEF1F5",
@@ -15,37 +16,38 @@ const cardBgs = [
 ];
 const bgOrder = [0, 1, 2, 0, 1, 2, 0];
 const MIN_H = 420;
-const SCORE = 58;
-const CATEGORIES = [
+const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
+let SCORE = 58;
+let CATEGORIES = [
   { name: "Copy & Messaging", score: 45 }, { name: "CTA Effectiveness", score: 65 },
   { name: "Trust & Social Proof", score: 70 }, { name: "Layout & Hierarchy", score: 52 },
   { name: "Technical Readiness", score: 40 },
 ];
-const CRITICAL = [
+let CRITICAL = [
   { title: "Hero copy lacks a clear value proposition", body: 'Your H1 reads: "Powerful analytics for modern teams." This describes the tool — not the outcome for the user.', terms: ["Value Proposition", "CTA Blindness"] },
   { title: "Primary CTA not visible above fold on mobile", body: 'Your "Get Started" button appears 1,420px down the page. On a 375px screen that\'s nearly 4 scrolls away.', terms: ["Above the Fold", "Conversion Friction"] },
   { title: "Page asks for action before building desire", body: 'Your "Start Free Trial" CTA appears in section 2. Your value explanation doesn\'t begin until section 4.', terms: ["Persuasion Sequence"] },
 ];
-const MAJOR = [
+let MAJOR = [
   { title: "No social proof in the first viewport", body: "0 testimonials, 0 trust logos, 0 customer counts. Visitors have no reason to trust you before signing up.", terms: ["Social Proof"] },
   { title: "Heading structure skips levels — H1 jumps to H4", body: "After your H1, the next heading is an H4. H2 and H3 are missing entirely." },
   { title: "No low-risk entry point for SaaS visitors", body: 'Your only CTA is "Start Free Trial" — no demo, no preview, no "see how it works."' },
   { title: "Meta description missing", body: "No meta description tag found. Search engines will auto-generate a snippet — usually poorly." },
   { title: "Body copy is feature-led, not benefit-led", body: "14 mentions of features, 2 mentions of user outcomes. Readers aren't seeing themselves in the copy." },
 ];
-const MINOR = [
+let MINOR = [
   { title: "3 images missing alt text", body: "hero-image.png, team-photo.jpg, and product-screenshot.webp have no alt attributes." },
   { title: "Logo not linked to homepage", body: "Your header logo has no anchor tag. Users expect to click it to return home." },
   { title: "OG image tag missing", body: "No og:image meta tag. Shared links will have no preview image." },
   { title: 'Copy uses "we" language throughout', body: '23 instances of "we/our/us", 4 of "you". High-converting copy talks to the reader.' },
 ];
-const PASSED = ["SSL / HTTPS confirmed", "Viewport meta tag present", "Single H1 tag — heading structure starts correctly", "Favicon detected", "Navigation links present in header", "Schema / JSON-LD detected", "External links open in new tab", "Font loading optimised", "No render-blocking scripts", "Page weight under 3MB", "No broken internal links", "Touch targets meet minimum 48px"];
+let PASSED = ["SSL / HTTPS confirmed", "Viewport meta tag present", "Single H1 tag — heading structure starts correctly", "Favicon detected", "Navigation links present in header", "Schema / JSON-LD detected", "External links open in new tab", "Font loading optimised", "No render-blocking scripts", "Page weight under 3MB", "No broken internal links", "Touch targets meet minimum 48px"];
 const REVENUE_LEAKS = [
   { pct: "~52%", label: "mobile drop-off", desc: "of mobile visitors exit before your CTA appears. CTA above fold lifts conversion by 28–47%.", color: C.forest, emoji: "🔴" },
   { pct: "2–3×", label: "trust gap", desc: "lower conversion without social proof above fold. You're likely at 1.2–1.8% vs 3.1–4.2% with trust signals.", color: C.violet, emoji: "🔴" },
   { pct: "18–32%", label: "copy friction", desc: "conversion lift missed from feature-led vs benefit-led headlines. Your H1 describes the tool, not the gain.", color: C.emerald, emoji: "🟠" },
 ];
-const PULSE_ITEMS = [
+let PULSE_ITEMS = [
   { text: "Rewrite H1 with outcome-led copy", sev: "Critical", emoji: "🔴" },
   { text: "Move CTA above fold on mobile", sev: "Critical", emoji: "🔴" },
   { text: "Restructure: context → desire → action", sev: "Critical", emoji: "🔴" },
@@ -183,20 +185,108 @@ function StickyCard({ idx, children }) {
 
 export default function FullReport({ auditId }: { auditId: string }) {
   const [showAllPassed, setShowAllPassed] = useState(false);
-  const [auditData, setAuditData] = useState<any>(null);
+  const [auditRow, setAuditRow] = useState<any>(null);
+  const [findings, setFindings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return "";
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  };
+
+  const calcCategoryScore = (items: any[]) => {
+    if (!items.length) return 100;
+    const passing = items.filter((item) => item.pass === true).length;
+    return Math.round((passing / items.length) * 100);
+  };
+
+  const flagged = findings.filter((f) => f.pass === false);
+  const severityOrder = { critical: 0, major: 1, minor: 2 };
+
+  SCORE = typeof auditRow?.score === "number" ? Math.round(auditRow.score) : 0;
+  CATEGORIES = [
+    { name: "Copy & Messaging", score: calcCategoryScore(findings.filter((f) => (f.check_id || "").startsWith("C"))) },
+    { name: "CTA Effectiveness", score: calcCategoryScore(findings.filter((f) => ["A1.4", "A5.2"].includes(f.check_id))) },
+    { name: "Trust & Social Proof", score: calcCategoryScore(findings.filter((f) => ["A4.1", "A4.6"].includes(f.check_id))) },
+    { name: "Layout & Hierarchy", score: calcCategoryScore(findings.filter((f) => ["A1.6", "A3.2", "A7.2"].includes(f.check_id))) },
+    { name: "Technical Readiness", score: calcCategoryScore(findings.filter((f) => (f.check_id || "").startsWith("A7"))) },
+  ];
+  CRITICAL = findings
+    .filter((f) => f.severity === "critical" && f.pass === false)
+    .map((f) => ({ title: f.name, body: f.finding, terms: f.glossary_terms ?? [] }));
+  MAJOR = findings
+    .filter((f) => f.severity === "major" && f.pass === false)
+    .map((f) => ({ title: f.name, body: f.finding, terms: f.glossary_terms ?? [] }));
+  MINOR = findings
+    .filter((f) => f.severity === "minor" && f.pass === false)
+    .map((f) => ({ title: f.name, body: f.finding, terms: f.glossary_terms ?? [] }));
+  PASSED = findings.filter((f) => f.pass === true).map((f) => f.name);
+  PULSE_ITEMS = flagged
+    .slice()
+    .sort((a, b) => (severityOrder[a.severity] ?? 99) - (severityOrder[b.severity] ?? 99))
+    .map((f) => ({
+      text: f.fix,
+      sev: `${(f.severity || "").charAt(0).toUpperCase()}${(f.severity || "").slice(1)}`,
+      emoji: f.severity === "critical" ? "🔴" : f.severity === "major" ? "🟠" : "🟡",
+    }));
+
+  const summaryCopy =
+    SCORE < 40
+      ? "Your site has critical conversion blockers. Fix the red items first."
+      : SCORE <= 69
+        ? "Decent structure — but your copy isn't converting, and your CTA is asking before it's earned the click."
+        : "Strong foundation. A few refinements will push your conversion rate further.";
+
   useEffect(() => {
     const load = async () => {
-      const cached = sessionStorage.getItem(`audit:${auditId}`);
-      if (cached) { try { setAuditData(JSON.parse(cached)); return; } catch {} }
-      const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      if (!anon) return;
-      const res = await fetch(`https://oxminualycvnxofoevjs.supabase.co/rest/v1/audits?id=eq.${auditId}&select=*`, { headers: { apikey: anon, Authorization: `Bearer ${anon}` } });
-      if (!res.ok) return;
-      const rows = await res.json();
-      if (rows?.[0]) setAuditData(rows[0]);
+      setLoading(true);
+      setError("");
+      const [{ data: auditsData, error: auditError }, { data: findingsData, error: findingsError }] = await Promise.all([
+        supabase.from("audits").select("*").eq("id", auditId).maybeSingle(),
+        supabase.from("audit_findings").select("*").eq("audit_id", auditId),
+      ]);
+
+      if (auditError || findingsError) {
+        setError(auditError?.message || findingsError?.message || "Failed to load audit data.");
+        setAuditRow(null);
+        setFindings([]);
+        setLoading(false);
+        return;
+      }
+
+      if (!auditsData) {
+        setError("Audit not found.");
+        setAuditRow(null);
+        setFindings([]);
+        setLoading(false);
+        return;
+      }
+
+      setAuditRow(auditsData);
+      setFindings(findingsData ?? []);
+      setLoading(false);
     };
     void load();
   }, [auditId]);
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Space Grotesk',sans-serif" }}>
+        <div style={{ width: 44, height: 44, borderRadius: "50%", border: "4px solid rgba(20,140,89,0.2)", borderTop: `4px solid ${C.emerald}` }} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Space Grotesk',sans-serif", color: C.navy }}>
+        {error}
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Space Grotesk',sans-serif", position: "relative" }}>
@@ -227,7 +317,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
         {/* CARD 1 — Score */}
         <StickyCard idx={0}>
           <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 20 }}>
-            <Pill text="yoursite.com" variant="green" /><Pill text="Signups" variant="green" /><Pill text="Demo requests" variant="violet" />
+            <Pill text={auditRow?.domain || "yoursite.com"} variant="green" /><Pill text="Signups" variant="green" /><Pill text="Demo requests" variant="violet" />
           </div>
           <div style={{ height: 1, background: "rgba(0,0,0,0.05)", marginBottom: 24 }} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "center" }}>
@@ -235,10 +325,10 @@ export default function FullReport({ auditId }: { auditId: string }) {
             <CategoryBars />
           </div>
           <p style={{ fontSize: 12.5, fontWeight: 500, color: C.textMuted, textAlign: "center", lineHeight: 1.5, margin: "20px 0 14px" }}>
-            Decent structure — but your copy isn't converting, and your CTA is asking before it's earned the click.
+            {summaryCopy}
           </p>
           <div style={{ display: "flex", justifyContent: "center", gap: 14 }}>
-            {[{ dot: C.red, text: "3 Critical" }, { dot: C.amber, text: "5 Major" }, { dot: C.emerald, text: "4 Minor" }, { dot: C.textDim, text: "12 Passed" }].map((s, i) => (
+            {[{ dot: C.red, text: `${CRITICAL.length} Critical` }, { dot: C.amber, text: `${MAJOR.length} Major` }, { dot: C.emerald, text: `${MINOR.length} Minor` }, { dot: C.textDim, text: `${PASSED.length} Passed` }].map((s, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
                 <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.dot }} />
                 <span style={{ fontSize: 12, fontWeight: 500, color: C.textMuted }}>{s.text}</span>
@@ -268,7 +358,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
         <StickyCard idx={2}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
             <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 18, fontWeight: 700, color: C.navy, margin: 0 }}>🔴 Critical</h2>
-            <SevPill label="3 findings" bg="rgba(220,38,38,0.1)" color={C.red} />
+            <SevPill label={`${CRITICAL.length} findings`} bg="rgba(220,38,38,0.1)" color={C.red} />
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {CRITICAL.map((f, i) => <FindingCard key={i} f={f} />)}
@@ -279,7 +369,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
         <StickyCard idx={3}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
             <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 18, fontWeight: 700, color: C.navy, margin: 0 }}>🟠 Major</h2>
-            <SevPill label="5 findings" bg="rgba(245,158,11,0.1)" color={C.amber} />
+            <SevPill label={`${MAJOR.length} findings`} bg="rgba(245,158,11,0.1)" color={C.amber} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             {MAJOR.map((f, i) => <FindingCard key={i} f={f} />)}
@@ -290,7 +380,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
         <StickyCard idx={4}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
             <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 18, fontWeight: 700, color: C.navy, margin: 0 }}>🟡 Minor</h2>
-            <SevPill label="4 findings" bg="rgba(20,213,113,0.1)" color={C.emerald} />
+            <SevPill label={`${MINOR.length} findings`} bg="rgba(20,213,113,0.1)" color={C.emerald} />
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {MINOR.map((f, i) => <FindingCard key={i} f={f} />)}
@@ -309,7 +399,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
         <StickyCard idx={5}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
             <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 18, fontWeight: 700, color: C.navy, margin: 0 }}>What's Working</h2>
-            <SevPill label="12 passed" bg="rgba(255,255,255,0.9)" color={C.emerald} />
+            <SevPill label={`${PASSED.length} passed`} bg="rgba(255,255,255,0.9)" color={C.emerald} />
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {(showAllPassed ? PASSED : PASSED.slice(0, 8)).map((p, i) => (
@@ -326,9 +416,9 @@ export default function FullReport({ auditId }: { auditId: string }) {
         {/* CARD 7 — Pulse Preview */}
         <StickyCard idx={6}>
           <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 18, fontWeight: 700, color: C.navy, margin: "0 0 4px" }}>Your fix checklist is ready.</h2>
-          <p style={{ fontSize: 13, color: C.textMuted, margin: "0 0 20px" }}>12 items — synced to Pulse when you're ready to build.</p>
+          <p style={{ fontSize: 13, color: C.textMuted, margin: "0 0 20px" }}>{flagged.length} items — synced to Pulse when you're ready to build.</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {PULSE_ITEMS.map((item, i) => (
+            {PULSE_ITEMS.slice(0, 5).map((item, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 16px", borderRadius: 8, background: "rgba(255,255,255,0.6)", border: "1px solid rgba(0,0,0,0.04)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ width: 18, height: 18, borderRadius: 4, border: "2px solid rgba(0,0,0,0.12)", flexShrink: 0 }} />
@@ -338,9 +428,9 @@ export default function FullReport({ auditId }: { auditId: string }) {
               </div>
             ))}
           </div>
-          <p style={{ fontSize: 12, color: C.textDim, marginTop: 14, marginBottom: 0 }}>+ 7 more items · available when you start Pulse</p>
+          <p style={{ fontSize: 12, color: C.textDim, marginTop: 14, marginBottom: 0 }}>+ {Math.max(flagged.length - 5, 0)} more items · available when you start Pulse</p>
           <div style={{ height: 1, background: "rgba(0,0,0,0.05)", margin: "14px 0" }} />
-          <p style={{ fontSize: 11, color: C.textDim, margin: 0 }}>Audit ID #0024 · Enter this in Pulse to sync your checklist</p>
+          <p style={{ fontSize: 11, color: C.textDim, margin: 0 }}>Audit ID #{auditId} · Enter this in Pulse to sync your checklist</p>
         </StickyCard>
 
         {/* CARD 8 — CTA */}
@@ -372,7 +462,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
         </div>
       </div>
       <div style={{ textAlign: "center", padding: "20px 28px 40px", position: "relative", zIndex: 5 }}>
-        <p style={{ fontSize: 11, color: C.textDim, margin: 0 }}>yoursite.com · Audit #{auditId} · 12 Mar 2026 · UXpact © 2026</p>
+        <p style={{ fontSize: 11, color: C.textDim, margin: 0 }}>{auditRow?.domain || "yoursite.com"} · Audit #{auditId} · {formatDate(auditRow?.created_at)} · UXpact © 2026</p>
       </div>
     </div>
   );
