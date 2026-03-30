@@ -24,6 +24,7 @@ export interface AuditScores {
   partA: number;
   partB: number;
   partC: number;
+  label: "Strong" | "Decent" | "Needs Work" | "Critical";
   checksPassed: number;
   checksFlagged: number;
   criticalIssues: number;

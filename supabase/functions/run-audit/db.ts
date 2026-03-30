@@ -19,6 +19,10 @@ export async function saveAuditResults(
   pagespeedData?: { performance: number; seo: number; accessibility: number; bestPractices: number } | null,
   securityGrade?: string | null,
 ): Promise<string | null> {
+  void domData;
+  void pagespeedData;
+  void securityGrade;
+
   if (!supabase) {
     return null;
   }
@@ -30,18 +34,14 @@ export async function saveAuditResults(
       domain,
       industry,
       status: "complete",
-      score_total: scores.total,
-      score_part_a: scores.partA,
-      score_part_b: scores.partB,
-      score_part_c: scores.partC,
+      score: scores.total,
+      part_a_score: scores.partA,
+      part_b_score: scores.partB,
+      part_c_score: scores.partC,
+      score_label: scores.label,
       checks_passed: scores.checksPassed,
       checks_flagged: scores.checksFlagged,
       critical_issues: scores.criticalIssues,
-      pagespeed_performance: pagespeedData?.performance ?? null,
-      pagespeed_seo: pagespeedData?.seo ?? null,
-      security_grade: securityGrade ?? null,
-      dom_data: domData,
-      completed_at: new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -53,16 +53,14 @@ export async function saveAuditResults(
   const rows = findings.map((finding) => ({
     audit_id: auditData.id,
     check_id: finding.id,
-    check_name: finding.name,
-    part: finding.part,
-    category: finding.category,
+    name: finding.name,
     severity: finding.severity,
     pass: finding.pass,
     score: finding.score,
     finding: finding.finding,
     fix: finding.fix,
-    ai_prompt: finding.aiPrompt ?? "",
-    manual_review: finding.manualReview,
+    dom_zone: finding.domZone ?? "body-copy",
+    glossary_terms: [],
   }));
 
   const { error: findingsError } = await supabase.from("audit_findings").insert(rows);

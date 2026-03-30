@@ -23,6 +23,7 @@ export function calculateScores(results: CheckResult[]): AuditScores {
   const partB = averageScore(partBResults);
   const partC = averageScore(partCResults);
   const total = round2((partA * 0.5) + (partB * 0.3) + (partC * 0.2));
+  const label = total >= 80 ? "Strong" : total >= 60 ? "Decent" : total >= 40 ? "Needs Work" : "Critical";
 
   const categories: AuditScores["categories"] = {};
   for (const check of automated) {
@@ -49,6 +50,7 @@ export function calculateScores(results: CheckResult[]): AuditScores {
     partA,
     partB,
     partC,
+    label,
     checksPassed,
     checksFlagged,
     criticalIssues,
