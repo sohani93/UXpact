@@ -86,8 +86,8 @@ function AuditPage() {
   return (
     <>
       {mode === "input" && <EngineInput onSubmit={handleSubmit} initialForm={form} />}
-      {mode === "loading" && <LoadingState domain={domain} focusAreas={form.focusAreas} goal={form.goal} />}
-      {mode === "results" && <CompactResults auditId={auditId} score={results.score} scoreLabel={results.scoreLabel} scoreSummary={results.scoreSummary} findings={results.findings} revenueLeak={results.revenueLeak} />}
+      {mode === "loading" && <LoadingState domain={domain} />}
+      {mode === "results" && <CompactResults auditId={auditId} score={results.score} scoreLabel={results.scoreLabel} scoreSummary={results.scoreSummary} findings={results.findings} revenueLeak={results.revenueLeak} domain={domain} focusAreas={form.focusAreas} />}
     </>
   );
 }
