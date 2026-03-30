@@ -15,7 +15,6 @@ const corsHeaders = {
 
 const allowedIndustries: Industry[] = ["saas", "ecommerce", "portfolio", "healthcare", "fintech", "service"];
 
-const CTA_TEXT_PATTERNS = ["get started", "start", "sign up", "try", "book", "contact", "buy", "subscribe", "learn more", "request", "demo"];
 
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
@@ -207,7 +206,7 @@ async function getSecurityGrade(domain: string): Promise<string | null> {
 }
 
 function extractPageMetadata(args: { doc: Document; html: string; url: URL; statusCode: number; headers: Record<string, string> }): PageMetadata {
-  const { doc, url, statusCode, headers } = args;
+  const { doc, html, url, statusCode, headers } = args;
   const title = textOrNull(doc.querySelector("title")?.textContent);
   const metaDescription = getMetaContent(doc, "description");
   const canonical = doc.querySelector('link[rel="canonical"]')?.getAttribute("href") ?? null;
@@ -250,18 +249,31 @@ function extractPageMetadata(args: { doc: Document; html: string; url: URL; stat
     return resolved.origin === url.origin && resolved.pathname === "/";
   });
 
-  const ctas = Array.from(doc.querySelectorAll("a, button, input[type='button'], input[type='submit'], [role='button']"))
-    .map((element) => {
-      const tag = element.tagName.toLowerCase();
-      const text = cleanText(element.textContent || element.getAttribute("value") || "");
-      const classes = (element.getAttribute("class") || "").trim();
-      return { text, tag, classes };
-    })
-    .filter((entry) => {
-      const normalized = entry.text.toLowerCase();
-      const classText = entry.classes.toLowerCase();
-      return normalized.length > 0 && (CTA_TEXT_PATTERNS.some((pattern) => normalized.includes(pattern)) || classText.includes("cta") || classText.includes("btn") || classText.includes("button"));
-    });
+  const exAll = (pattern: RegExp, groupIndex = 1): string[] => {
+    const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+    const regex = new RegExp(pattern.source, flags);
+    const matches = Array.from(html.matchAll(regex));
+    return matches.map((match) => cleanText(match[groupIndex] ?? "")).filter((text) => text.length > 0);
+  };
+
+  // Buttons
+  const btnTexts = exAll(/<button[^>]*>([\s\S]*?)<\/button>/i);
+
+  // <a> tags with btn/button/cta in class
+  const anchorBtnTexts = exAll(/<a[^>]*class=["'][^"']*(btn|button|cta)[^"']*["'][^>]*>([\s\S]*?)<\/a>/i, 2);
+
+  // <a> tags with href that contain action words (not nav links)
+  const allAnchors = exAll(/<a[^>]*href=["'][^"']*["'][^>]*>([\s\S]*?)<\/a>/i).filter((text) => {
+    const lower = text.toLowerCase();
+    return ["start", "get", "try", "book", "buy", "sign", "join", "watch", "see", "request", "claim", "build", "free", "demo", "access", "download"]
+      .some((value) => lower.includes(value));
+  });
+
+  // Input submit buttons
+  const inputSubmits = exAll(/<input[^>]*type=["'](submit|button)["'][^>]*value=["']([^"']*)["']/i, 2);
+
+  const ctaTexts = [...new Set([...btnTexts, ...anchorBtnTexts, ...allAnchors, ...inputSubmits])].filter(Boolean);
+  const ctas = ctaTexts.map((text) => ({ text, tag: "detected", classes: "" }));
 
   const images = Array.from(doc.querySelectorAll("img")).map((image) => {
     const alt = image.getAttribute("alt");
