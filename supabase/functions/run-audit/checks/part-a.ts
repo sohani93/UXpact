@@ -40,6 +40,7 @@ function manual(id: string, name: string, category: string, severity: Severity):
 export function runPartAChecks(metadata: PageMetadata): CheckResult[] {
   const ctaTexts = metadata.ctas.map((cta) => cta.text.trim()).filter(Boolean);
   const firstCtaText = (ctaTexts[0] ?? "").toLowerCase();
+  const sct = /^(start|get|try|book|buy|sign|join|watch|see|request|claim|build|free|demo|access|download)/i.test(firstCtaText);
   const genericButton = metadata.buttonTexts.find((text) => GENERIC_CTA_TEXTS.has(text.toLowerCase()));
 
   const checks: CheckResult[] = [];
@@ -78,7 +79,7 @@ export function runPartAChecks(metadata: PageMetadata): CheckResult[] {
   } else if (GENERIC_CTA_TEXTS.has(firstCtaText)) {
     checks.push(result({ id: "A1.4", name: "Primary CTA visible", part: "A", category: "First Impression & Clarity", severity: "critical", pass: false, score: 4, finding: `CTA exists but uses weak text: '${ctaTexts[0]}'`, fix: "Rewrite CTA to use verb + benefit format. E.g., 'Get my free report' instead of 'Submit'." }));
   } else {
-    checks.push(result({ id: "A1.4", name: "Primary CTA visible", part: "A", category: "First Impression & Clarity", severity: "critical", pass: true, score: 10, finding: "At least one clear CTA is visible.", fix: "Keep primary CTA copy specific and action-oriented." }));
+    checks.push(result({ id: "A1.4", name: "Primary CTA visible", part: "A", category: "First Impression & Clarity", severity: "critical", pass: true, score: 10, finding: `CTA detected: "${ctaTexts[0]?.slice(0, 40)}"${!sct ? " — consider stronger action verb." : ""}`, fix: "Keep primary CTA copy specific and action-oriented." }));
   }
 
   checks.push(result({
