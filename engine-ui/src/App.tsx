@@ -60,6 +60,8 @@ function AuditPage() {
   }, [mode, pendingData, progress]);
 
   const handleSubmit = async (formData: AuditRequestFormData) => {
+    const parsedDomain = new URL(formData.url).hostname;
+    setDomain(parsedDomain);
     setForm(formData);
     setMode("loading");
     setProgress(0);
@@ -72,22 +74,21 @@ function AuditPage() {
       await minWait;
       if (!response.ok || json.error) { setMode("input"); return; }
       const findings: Finding[] = (json.findings ?? []).map((f: any) => ({ id: f.id, name: f.name, severity: f.severity, finding: f.finding, fix: f.fix, aiPrompt: f.aiPrompt, pass: Boolean(f.pass), glossaryTerms: f.glossaryTerms ?? [], domZone: f.domZone ?? "body-copy" }));
-      const parsedDomain = new URL(formData.url).hostname;
-      setDomain(parsedDomain);
-      const auditData: AuditData = { auditId: json.auditId, url: formData.url, domain: parsedDomain, score: Number(json.scores?.total ?? 0), createdAt: new Date().toISOString(), findings, domData: json.domData ?? { navLinks: [], h1Text: parsedDomain, h2Texts: [], h3Texts: [], ctaTexts: [], paragraphTexts: [], imagesCount: 0, hasForm: false } };
+      const topFindings: Finding[] = (json.topFindings ?? []).map((f: any) => ({ id: f.id, name: f.name, severity: f.severity, finding: f.finding, fix: f.fix, aiPrompt: f.aiPrompt, pass: Boolean(f.pass), glossaryTerms: f.glossaryTerms ?? [], domZone: f.domZone ?? "body-copy" }));
+      const auditData: AuditData = { auditId: json.auditId, url: formData.url, domain: parsedDomain, score: Number(json.scores?.total ?? 0), criticalIssues: Number(json.scores?.criticalIssues ?? 0), createdAt: new Date().toISOString(), findings, topFindings, domData: json.domData ?? { navLinks: [], h1Text: parsedDomain, h2Texts: [], h3Texts: [], ctaTexts: [], paragraphTexts: [], imagesCount: 0, hasForm: false } };
       sessionStorage.setItem(`audit:${auditData.auditId}`, JSON.stringify(auditData));
       setPendingData(auditData);
     } catch { setMode("input"); }
   };
 
-  const results = result ? { score: Math.round(result.score), scoreLabel: result.score >= 70 ? "Good" : result.score >= 40 ? "Needs Work" : "Critical", scoreSummary: "Here's how your site performed across our analysis.", findings: result.findings, revenueLeak: generateRevenueLeak(result.score, result.findings) } : { score: 0, scoreLabel: "", scoreSummary: "", findings: [], revenueLeak: { mobileDropoff: 0, copyFriction: "", riskBand: "" } };
+  const results = result ? { score: Math.round(result.score), scoreLabel: result.score >= 70 ? "Good" : result.score >= 40 ? "Needs Work" : "Critical", scoreSummary: "Here's how your site performed across our analysis.", findings: result.findings, topFindings: result.topFindings, criticalIssues: result.criticalIssues, revenueLeak: generateRevenueLeak(result.score, result.findings) } : { score: 0, scoreLabel: "", scoreSummary: "", findings: [], topFindings: [], criticalIssues: 0, revenueLeak: { mobileDropoff: 0, copyFriction: "", riskBand: "" } };
   const auditId = result?.auditId ?? "";
 
   return (
     <>
       {mode === "input" && <EngineInput onSubmit={handleSubmit} initialForm={form} />}
-      {mode === "loading" && <LoadingState domain={domain} />}
-      {mode === "results" && <CompactResults auditId={auditId} score={results.score} scoreLabel={results.scoreLabel} scoreSummary={results.scoreSummary} findings={results.findings} revenueLeak={results.revenueLeak} domain={domain} focusAreas={form.focusAreas} />}
+      {mode === "loading" && <LoadingState domain={domain || new URL(form.url).hostname} />}
+      {mode === "results" && <CompactResults auditId={auditId} score={results.score} scoreLabel={results.scoreLabel} scoreSummary={results.scoreSummary} findings={results.findings} topFindings={results.topFindings} criticalIssues={results.criticalIssues} revenueLeak={results.revenueLeak} domain={domain} focusAreas={form.focusAreas} />}
     </>
   );
 }

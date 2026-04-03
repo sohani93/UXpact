@@ -250,7 +250,7 @@ export default function LoadingState({ domain }: { domain: string }) {
 
         <div style={{ ...glass, padding: "36px 32px", display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
-            <Pill text="yoursite.com" variant="green" />
+            <Pill text={domain} variant="green" />
             <Pill text="Signups" variant="green" />
             <Pill text="Demo requests" variant="violet" />
           </div>
