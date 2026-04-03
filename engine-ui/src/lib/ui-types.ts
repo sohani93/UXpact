@@ -34,8 +34,10 @@ export type AuditData = {
   url: string;
   domain: string;
   score: number;
+  criticalIssues: number;
   createdAt: string;
   findings: Finding[];
+  topFindings: Finding[];
   domData: {
     navLinks: string[];
     h1Text: string;

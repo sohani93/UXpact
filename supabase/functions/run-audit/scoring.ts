@@ -10,7 +10,7 @@ function averageScore(results: CheckResult[]): number {
   }
 
   const avg = results.reduce((sum, item) => sum + item.score, 0) / results.length;
-  return round2(avg * 10);
+  return round2(avg * 100);
 }
 
 export function calculateScores(results: CheckResult[]): AuditScores {

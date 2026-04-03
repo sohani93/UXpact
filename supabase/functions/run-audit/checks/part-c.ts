@@ -68,7 +68,7 @@ export function runPartCChecks(metadata: PageMetadata): CheckResult[] {
     manual("C3.2", "Differentiation strength", "Positioning"),
     {
       id: "C4.1",
-      name: "You/We ratio",
+      name: c41Score >= 7 ? "You/We ratio" : "You/We ratio imbalance",
       part: "C",
       category: "Emotional Resonance",
       severity: "major",
@@ -80,7 +80,7 @@ export function runPartCChecks(metadata: PageMetadata): CheckResult[] {
     },
     {
       id: "C4.2",
-      name: "Benefits vs features focus",
+      name: c42Score >= 7 ? "Benefits vs features focus" : "Feature-led copy issue",
       part: "C",
       category: "Emotional Resonance",
       severity: "major",
@@ -93,7 +93,7 @@ export function runPartCChecks(metadata: PageMetadata): CheckResult[] {
     manual("C5.1", "Visual-message consistency", "Copy-Design Alignment"),
     {
       id: "C5.2",
-      name: "Reading path leads to CTA",
+      name: c52Pass ? "Reading path leads to CTA" : "Reading path disconnect from CTA",
       part: "C",
       category: "Copy-Design Alignment",
       severity: "major",

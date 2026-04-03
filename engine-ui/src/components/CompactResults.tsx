@@ -8,6 +8,8 @@ type CompactResultsProps = {
   scoreLabel: string;
   scoreSummary: string;
   findings: Finding[];
+  topFindings: Finding[];
+  criticalIssues: number;
   revenueLeak: RevenueLeak;
   domain: string;
   focusAreas: string[];
@@ -61,11 +63,11 @@ function ArcGauge({ score }: { score: number }) {
   );
 }
 
-export default function CompactResults({ auditId, score, scoreLabel, scoreSummary, findings, revenueLeak, domain, focusAreas }: CompactResultsProps) {
+export default function CompactResults({ auditId, score, scoreLabel, scoreSummary, findings, topFindings, criticalIssues, revenueLeak, domain, focusAreas }: CompactResultsProps) {
   const [hov, setHov] = useState(false);
-  const top = findings.filter((f) => !f.pass).slice(0, 3);
+  const top = topFindings.slice(0, 3);
 
-  const criticalCount = findings.filter((f) => f.severity === "critical" && !f.pass).length;
+  const criticalCount = criticalIssues;
   const assessmentText =
     score < 40
       ? `Your site has ${criticalCount} critical issue${criticalCount === 1 ? "" : "s"} costing you conversions.`
@@ -101,7 +103,7 @@ export default function CompactResults({ auditId, score, scoreLabel, scoreSummar
 
           <ArcGauge score={score} />
           <p style={{ fontSize: 14, fontWeight: 500, color: "#0B1C48", textAlign: "center", maxWidth: 440, margin: 0 }}>{assessmentText}</p>
-          <div style={{ marginTop: -2, padding: "4px 16px", borderRadius: 20, background: "#E0E7FF", fontSize: 11, fontWeight: 600, color: "#5B61F4" }}>{scoreLabel}</div>
+          <div style={{ marginTop: -2, padding: "4px 16px", borderRadius: 20, background: scoreLabel === "Critical" ? "#FEE2E2" : "#E0E7FF", fontSize: 11, fontWeight: 600, color: scoreLabel === "Critical" ? "#DC2626" : "#5B61F4" }}>{scoreLabel}</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0, width: "100%", maxWidth: 420, borderRadius: 10, overflow: "hidden", border: "1px solid rgba(255,255,255,0.65)", background: "rgba(255,255,255,0.5)" }}>
             <div style={{ padding: "16px 18px", borderRight: "1px solid rgba(0,0,0,0.05)", textAlign: "center" }}>
               <span style={{ fontSize: 22, fontWeight: 800, color: "#186132", fontFamily: "'Unbounded', sans-serif" }}>🔻 ~{dropoff}%</span>
@@ -119,7 +121,7 @@ export default function CompactResults({ auditId, score, scoreLabel, scoreSummar
                 <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 8, background: "rgba(255,255,255,0.6)", border: "1px solid rgba(0,0,0,0.04)", opacity: 1, transform: "translateY(0)", transition: `opacity 0.3s ease ${0.3 + i * 0.15}s` }}>
                   <div style={{ width: 8, height: 8, borderRadius: "50%", background: sevDot[f.severity], flexShrink: 0 }} />
                   <span style={{ fontSize: 12.5, fontWeight: 500, color: C.navy }}>{f.name}</span>
-                  <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: sevDot[f.severity] }}>{f.severity}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: sevDot[f.severity] }}>{f.severity.toUpperCase()}</span>
                 </div>
               ))}
             </div>

@@ -198,30 +198,32 @@ export default function FullReport({ auditId }: { auditId: string }) {
     return Math.round((passing / items.length) * 100);
   };
 
-  const flagged = findings.filter((f) => f.pass === false);
+  const displayFindings = findings.filter((f) => !f.pass && !Boolean(f.manual_review ?? f.manualReview));
+  const nonManualFindings = findings.filter((f) => !Boolean(f.manual_review ?? f.manualReview));
+  const flagged = displayFindings;
   const severityOrder = { critical: 0, major: 1, minor: 2 };
   const dedupeByName = (items: any[]) =>
     items.filter((item, index, arr) => arr.findIndex((entry) => entry.name === item.name) === index);
-  const isFailing = (checkId: string) => findings.some((f) => f.check_id === checkId && f.pass === false);
+  const isFailing = (checkId: string) => displayFindings.some((f) => f.check_id === checkId && f.pass === false);
 
   SCORE = typeof auditRow?.score === "number" ? Math.round(auditRow.score) : 0;
   CATEGORIES = [
-    { name: "Copy & Messaging", score: calcCategoryScore(findings.filter((f) => (f.check_id || "").startsWith("C"))) },
-    { name: "CTA Effectiveness", score: calcCategoryScore(findings.filter((f) => ["A1.4", "A5.2"].includes(f.check_id))) },
-    { name: "Trust & Social Proof", score: calcCategoryScore(findings.filter((f) => ["A4.1", "A4.6"].includes(f.check_id))) },
-    { name: "Layout & Hierarchy", score: calcCategoryScore(findings.filter((f) => ["A1.6", "A3.2", "A7.2"].includes(f.check_id))) },
-    { name: "Technical Readiness", score: calcCategoryScore(findings.filter((f) => (f.check_id || "").startsWith("A7"))) },
+    { name: "Copy & Messaging", score: calcCategoryScore(nonManualFindings.filter((f) => (f.check_id || "").startsWith("C"))) },
+    { name: "CTA Effectiveness", score: calcCategoryScore(nonManualFindings.filter((f) => ["A1.4", "A5.2"].includes(f.check_id))) },
+    { name: "Trust & Social Proof", score: calcCategoryScore(nonManualFindings.filter((f) => ["A4.1", "A4.6"].includes(f.check_id))) },
+    { name: "Layout & Hierarchy", score: calcCategoryScore(nonManualFindings.filter((f) => ["A1.6", "A3.2", "A7.2"].includes(f.check_id))) },
+    { name: "Technical Readiness", score: calcCategoryScore(nonManualFindings.filter((f) => (f.check_id || "").startsWith("A7"))) },
   ];
-  CRITICAL = dedupeByName(findings
+  CRITICAL = dedupeByName(nonManualFindings
     .filter((f) => f.severity === "critical" && f.pass === false))
     .map((f) => ({ title: f.name, body: f.finding, terms: f.glossary_terms ?? [] }));
-  MAJOR = dedupeByName(findings
+  MAJOR = dedupeByName(nonManualFindings
     .filter((f) => f.severity === "major" && f.pass === false))
     .map((f) => ({ title: f.name, body: f.finding, terms: f.glossary_terms ?? [] }));
-  MINOR = dedupeByName(findings
+  MINOR = dedupeByName(nonManualFindings
     .filter((f) => f.severity === "minor" && f.pass === false))
     .map((f) => ({ title: f.name, body: f.finding, terms: f.glossary_terms ?? [] }));
-  PASSED = findings.filter((f) => f.pass === true).map((f) => f.name);
+  PASSED = nonManualFindings.filter((f) => f.pass === true).map((f) => f.name);
   PULSE_ITEMS = flagged
     .slice()
     .sort((a, b) => (severityOrder[a.severity] ?? 99) - (severityOrder[b.severity] ?? 99))
@@ -270,7 +272,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
     },
   ];
 
-  const criticalCount = findings.filter((f) => f.severity === "critical" && !f.pass).length;
+  const criticalCount = displayFindings.filter((f) => f.severity === "critical" && !f.pass).length;
   const score = auditRow?.score;
   let atRisk = "£480/mo";
   if (score < 40 && criticalCount >= 3) atRisk = "£5,200/mo";
@@ -390,7 +392,10 @@ export default function FullReport({ auditId }: { auditId: string }) {
             {revenueLeaks.map((r, i) => (
               <div key={i} style={{ padding: "28px 24px", borderRadius: 14, background: "#FFFFFF", border: "1px solid rgba(0,0,0,0.06)", textAlign: "center", position: "relative", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
                 {r.emoji && <div style={{ position: "absolute", top: 12, right: 14, fontSize: 12 }}>{r.emoji}</div>}
-                <div style={{ fontSize: 32, fontWeight: 800, color: r.color, fontFamily: "'Unbounded',sans-serif", marginBottom: 4 }}>{r.pct}</div>
+                <div style={{ fontWeight: 800, color: r.color, fontFamily: "'Unbounded',sans-serif", marginBottom: 4 }}>
+                  <span style={{ fontSize: 32 }}>{r.pct.split(" ")[0]}</span>
+                  {r.pct.includes(" ") && <span style={{ fontSize: 12.5, fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, marginLeft: 6, color: C.navy }}>{r.pct.slice(r.pct.indexOf(" ") + 1)}</span>}
+                </div>
                 <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, marginBottom: 10 }}>{r.label}</div>
                 <div style={{ fontSize: 11.5, color: C.textMuted, lineHeight: 1.5 }}>{r.desc}</div>
               </div>
@@ -406,7 +411,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
               <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 18, fontWeight: 700, color: C.navy, margin: 0 }}>🔴 Critical</h2>
               <SevPill label={`${CRITICAL.length} findings`} bg="rgba(220,38,38,0.1)" color={C.red} />
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {CRITICAL.map((f, i) => <FindingCard key={i} f={f} />)}
             </div>
           </StickyCard>
@@ -419,7 +424,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
               <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 18, fontWeight: 700, color: C.navy, margin: 0 }}>🟠 Major</h2>
               <SevPill label={`${MAJOR.length} findings`} bg="rgba(245,158,11,0.1)" color={C.amber} />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               {MAJOR.map((f, i) => <FindingCard key={i} f={f} />)}
             </div>
           </StickyCard>
@@ -432,7 +437,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
               <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 18, fontWeight: 700, color: C.navy, margin: 0 }}>🟡 Minor</h2>
               <SevPill label={`${MINOR.length} findings`} bg="rgba(20,213,113,0.1)" color={C.emerald} />
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {MINOR.map((f, i) => <FindingCard key={i} f={f} />)}
             </div>
             <details style={{ marginTop: 16, cursor: "pointer" }}>
