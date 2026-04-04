@@ -200,6 +200,35 @@ export default function FullReport({ auditId }: { auditId: string }) {
 
   const displayFindings = findings.filter((f) => !f.pass && !Boolean(f.manual_review ?? f.manualReview));
   const nonManualFindings = findings.filter((f) => !Boolean(f.manual_review ?? f.manualReview));
+  const passingChecks = findings.filter((f) => f.pass && !Boolean(f.manual_review ?? f.manualReview));
+  const categoryLabels: Record<string, string> = {
+    "First Impression & Clarity": "First impression & clarity",
+    "Navigation & Structure": "Navigation & structure",
+    "Copy & Messaging": "Copy & messaging",
+    "Trust & Social Proof": "Trust & social proof",
+    "CTA & Conversion Design": "CTA effectiveness",
+    "Layout & Visual Design": "Layout & visual design",
+    "Technical Readiness": "Technical readiness",
+    "Industry-Specific (SaaS)": "SaaS-specific checks",
+    "Industry-Specific (Ecommerce)": "Ecommerce-specific checks",
+    "Industry-Specific (Portfolio)": "Portfolio-specific checks",
+    "Industry-Specific (Healthcare)": "Healthcare-specific checks",
+    "Industry-Specific (Fintech)": "Fintech-specific checks",
+    "Industry-Specific (Service)": "Service-specific checks",
+    "Emotional Resonance": "Copy tone & resonance",
+    "Copy-Design Alignment": "Copy-design alignment",
+    "Brand Foundation": "Brand foundation",
+    "Audience Fit": "Audience fit",
+    "Positioning": "Positioning",
+  };
+  const passingByCategory = Object.entries(
+    passingChecks.reduce((acc, f) => {
+      const label = categoryLabels[f.category] ?? f.category;
+      if (!acc[label]) acc[label] = 0;
+      acc[label]++;
+      return acc;
+    }, {} as Record<string, number>),
+  );
   const flagged = displayFindings;
   const severityOrder = { critical: 0, major: 1, minor: 2 };
   const dedupeByName = (items: any[]) =>
@@ -223,7 +252,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
   MINOR = dedupeByName(nonManualFindings
     .filter((f) => f.severity === "minor" && f.pass === false))
     .map((f) => ({ title: f.name, body: f.finding, terms: f.glossary_terms ?? [] }));
-  PASSED = nonManualFindings.filter((f) => f.pass === true).map((f) => f.name);
+  PASSED = passingChecks.map((f) => f.name);
   PULSE_ITEMS = flagged
     .slice()
     .sort((a, b) => (severityOrder[a.severity] ?? 99) - (severityOrder[b.severity] ?? 99))
@@ -240,7 +269,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
   dropoff = Math.min(65, dropoff);
   dropoff = Math.round(dropoff / 5) * 5;
 
-  const trustFailing = ["A4.1", "A4.6", "A3.1"].filter((id) => isFailing(id)).length;
+  const trustFailing = ["A4.1", "A4.3", "A4.5"].filter((id) => isFailing(id)).length;
 
   let friction = 15;
   if (isFailing("C4.1")) friction += 9;
@@ -259,7 +288,9 @@ export default function FullReport({ auditId }: { auditId: string }) {
     {
       pct: trustFailing === 3 ? "3/3 trust signals missing" : trustFailing === 2 ? "2/3 trust signals missing" : trustFailing === 1 ? "1/3 trust signals missing" : "Trust signals present",
       label: "trust coverage",
-      desc: "Missing trust signals reduce conversion by up to 2–3×. Add testimonials, logos, and social proof above fold.",
+      desc: trustFailing > 0
+        ? "Missing trust signals reduce conversion by up to 2–3×. Add testimonials, logos, and social proof above fold."
+        : "Strong trust foundation. Keep testimonials, logos, and security signals prominent.",
       color: C.violet,
       emoji: trustFailing === 3 ? "🔴" : trustFailing === 2 ? "🟠" : trustFailing === 1 ? "🟡" : "",
     },
@@ -387,7 +418,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
         <StickyCard idx={1}>
           <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 18, fontWeight: 700, color: C.navy, margin: "0 0 6px" }}>Revenue Leak</h2>
           <p style={{ fontSize: 13, color: C.textMuted, margin: "0 0 24px" }}>Here's what these issues are likely costing you.</p>
-          <p style={{ fontSize: 14, fontWeight: 600, color: C.navy, margin: "0 0 20px" }}>Estimated ~{atRisk} at risk based on your findings.</p>
+          <p style={{ fontSize: 14, fontWeight: 600, color: C.navy, margin: "0 0 20px" }}>Estimated ~{atRisk} at risk based on these findings.</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20 }}>
             {revenueLeaks.map((r, i) => (
               <div key={i} style={{ padding: "28px 24px", borderRadius: 14, background: "#FFFFFF", border: "1px solid rgba(0,0,0,0.06)", textAlign: "center", position: "relative", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
@@ -455,16 +486,19 @@ export default function FullReport({ auditId }: { auditId: string }) {
         <StickyCard idx={5}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
             <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 18, fontWeight: 700, color: C.navy, margin: 0 }}>What's Working</h2>
-            <SevPill label={`${PASSED.length} passed`} bg="rgba(255,255,255,0.9)" color={C.emerald} />
+            <SevPill label={`${passingChecks.length} passed`} bg="rgba(255,255,255,0.9)" color={C.emerald} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            {(showAllPassed ? PASSED : PASSED.slice(0, 8)).map((p, i) => (
+            {(showAllPassed ? passingByCategory : passingByCategory.slice(0, 8)).map(([categoryLabel, count], i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: C.navy, fontWeight: 450 }}>
-                <GreenCheck /> {p}
+                <GreenCheck />
+                <span>
+                  {categoryLabel} <span style={{ fontSize: 11, color: "#9CA3AF" }}>· {count} {count === 1 ? "check" : "checks"}</span>
+                </span>
               </div>
             ))}
-            {!showAllPassed && PASSED.length > 8 && (
-              <button onClick={() => setShowAllPassed(true)} style={{ marginTop: 8, gridColumn: "1 / -1", textAlign: "left", background: "none", border: "none", color: C.emerald, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}>+ {PASSED.length - 8} more</button>
+            {!showAllPassed && passingByCategory.length > 8 && (
+              <button onClick={() => setShowAllPassed(true)} style={{ marginTop: 8, gridColumn: "1 / -1", textAlign: "left", background: "none", border: "none", color: C.emerald, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}>+ {passingByCategory.length - 8} more</button>
             )}
           </div>
         </StickyCard>
