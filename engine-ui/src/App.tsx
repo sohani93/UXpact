@@ -60,22 +60,26 @@ function AuditPage() {
   }, [mode, pendingData, progress]);
 
   const handleSubmit = async (formData: AuditRequestFormData) => {
-    const parsedDomain = new URL(formData.url).hostname;
-    setDomain(parsedDomain);
-    setForm(formData);
-    setMode("loading");
-    setProgress(0);
-    sessionStorage.setItem("auditContext", JSON.stringify(formData));
+    const rawUrl = formData.url.trim();
+    const normalisedUrl = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+    const normalisedFormData = { ...formData, url: normalisedUrl };
+    setForm(normalisedFormData);
+    sessionStorage.setItem("auditContext", JSON.stringify(normalisedFormData));
     const minWait = new Promise((resolve) => setTimeout(resolve, 4000));
     try {
+      const parsedUrl = new URL(normalisedUrl);
+      const parsedDomain = parsedUrl.hostname;
+      setDomain(parsedDomain);
+      setMode("loading");
+      setProgress(0);
       const endpoint = import.meta.env.VITE_AUDIT_ENDPOINT ?? "https://oxminualycvnxofoevjs.supabase.co/functions/v1/run-audit";
-      const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData) });
+      const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(normalisedFormData) });
       const json = await response.json();
       await minWait;
       if (!response.ok || json.error) { setMode("input"); return; }
       const findings: Finding[] = (json.findings ?? []).map((f: any) => ({ id: f.id, name: f.name, severity: f.severity, finding: f.finding, fix: f.fix, aiPrompt: f.aiPrompt, pass: Boolean(f.pass), glossaryTerms: f.glossaryTerms ?? [], domZone: f.domZone ?? "body-copy" }));
       const topFindings: Finding[] = (json.topFindings ?? []).map((f: any) => ({ id: f.id, name: f.name, severity: f.severity, finding: f.finding, fix: f.fix, aiPrompt: f.aiPrompt, pass: Boolean(f.pass), glossaryTerms: f.glossaryTerms ?? [], domZone: f.domZone ?? "body-copy" }));
-      const auditData: AuditData = { auditId: json.auditId, url: formData.url, domain: parsedDomain, score: Number(json.scores?.total ?? 0), criticalIssues: Number(json.scores?.criticalIssues ?? 0), createdAt: new Date().toISOString(), findings, topFindings, domData: json.domData ?? { navLinks: [], h1Text: parsedDomain, h2Texts: [], h3Texts: [], ctaTexts: [], paragraphTexts: [], imagesCount: 0, hasForm: false } };
+      const auditData: AuditData = { auditId: json.auditId, url: normalisedUrl, domain: parsedDomain, score: Number(json.scores?.total ?? 0), criticalIssues: Number(json.scores?.criticalIssues ?? 0), createdAt: new Date().toISOString(), findings, topFindings, domData: json.domData ?? { navLinks: [], h1Text: parsedDomain, h2Texts: [], h3Texts: [], ctaTexts: [], paragraphTexts: [], imagesCount: 0, hasForm: false } };
       sessionStorage.setItem(`audit:${auditData.auditId}`, JSON.stringify(auditData));
       setPendingData(auditData);
     } catch { setMode("input"); }
