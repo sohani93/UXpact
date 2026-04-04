@@ -209,8 +209,8 @@ function extractPageMetadata(args: { doc: Document; html: string; url: URL; stat
       const hasImg = Boolean(headerAnchor.querySelector("img, svg"));
       const resolved = safeResolveUrl(href, url);
       const linksHome = resolved
-        ? resolved.origin === url.origin && (resolved.pathname === "/" || resolved.pathname === "")
-        : ["/", "./", "#", url.origin].includes(href.trim());
+        ? resolved.origin === url.origin && (resolved.pathname === "/" || resolved.pathname === "" || resolved.pathname === url.pathname)
+        : ["/", "./", "#"].includes(href.trim()) || href === url.origin || href === url.href;
       if (hasImg && linksHome) return true;
     }
     return false;
@@ -431,13 +431,28 @@ function runPartBChecks(metadata: PageMetadata, industry: Industry): CheckResult
 
   if (industry === "saas") {
     const pricing = hasAny(text, ["pricing", "price", "plan", "free", "trial", "month", "year", "$", "£", "€", "/mo", "/yr"]);
-    const howItWorks = hasAny(text, ["how it works", "how to", "step 1", "step 2", "getting started"]);
+    const howItWorks = hasAny(text, [
+      "how it works",
+      "how to",
+      "step 1",
+      "step 2",
+      "getting started",
+      "set up",
+      "setup",
+      "how do i",
+      "takes a few minutes",
+      "only takes",
+      "easy as",
+      "3 steps",
+      "three steps",
+      "in minutes",
+    ]);
     const freeTrial = hasAny(`${text} ${ctaText}`, ["free trial", "try free", "start free", "no credit card", "demo", "book a demo"]);
     const integrations = hasAny(text, ["integrat", "connect", "works with", "compatible", "api"]);
     return [
       manual("B1.1", "Clear target user defined", "Industry-Specific (SaaS)", "major", "B"),
       { id: "B1.2", name: pricing ? "Pricing transparency present" : "Pricing transparency missing", part: "B", category: "Industry-Specific (SaaS)", severity: "major", pass: pricing, score: pricing ? 10 : 0, manualReview: false, finding: pricing ? "Pricing signals detected." : "No pricing info visible.", fix: "Show pricing or indicate free trial / contact for pricing." },
-      { id: "B1.3", name: howItWorks ? '"How it works" section present' : '"How it works" section missing', part: "B", category: "Industry-Specific (SaaS)", severity: "major", pass: howItWorks, score: howItWorks ? 10 : 0, manualReview: false, finding: howItWorks ? "How-it-works section detected." : "No how-it-works section.", fix: "Add a 3-step how-it-works section." },
+      { id: "B1.3", name: howItWorks ? '"How it works" section present' : '"How it works" section missing', part: "B", category: "Industry-Specific (SaaS)", severity: "major", pass: howItWorks, score: howItWorks ? 10 : 0, manualReview: false, finding: howItWorks ? "How-it-works section detected." : "No dedicated 'How it works' section found. Visitors need to understand your product before they'll convert — a clear 3-step section above the fold reduces drop-off and support queries.", fix: "Add a 3-step how-it-works section." },
       manual("B1.4", "Feature depth clarity", "Industry-Specific (SaaS)", "minor", "B"),
       { id: "B1.5", name: freeTrial ? "Free trial CTA present" : "Free trial CTA missing", part: "B", category: "Industry-Specific (SaaS)", severity: "major", pass: freeTrial, score: freeTrial ? 10 : 0, manualReview: false, finding: freeTrial ? "Free trial/demo signals found." : "No free trial or demo offer.", fix: "Add 'Start free trial' or 'Book a demo'." },
       manual("B1.6", "Onboarding friction", "Industry-Specific (SaaS)", "major", "B"),
