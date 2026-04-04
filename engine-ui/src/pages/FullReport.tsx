@@ -7,7 +7,7 @@ const C = {
   forest: "#186132", emerald: "#148C59", mint: "#14D571",
   violet: "#5B61F4", navy: "#0B1C48",
   textMuted: "#6B7280", textDim: "#9CA3AF",
-  red: "#DC2626", amber: "#F97316",
+  red: "#DC2626", amber: "#F97316", yellow: "#EAB308",
 };
 const cardBgs = [
   { background: "rgba(255,255,255,0.65)", backdropFilter: "blur(24px)", border: "1px solid rgba(255,255,255,0.7)" },
@@ -51,8 +51,9 @@ let PULSE_ITEMS = [
 ];
 const getScoreColor = (s) => s >= 70 ? C.mint : s >= 40 ? C.emerald : C.forest;
 const getSevBadge = (s) => {
-  if (s >= 70) return { label: "Good", bg: "#D1FAE5", color: C.emerald };
-  if (s >= 40) return { label: "Needs Work", bg: "#E0E7FF", color: C.violet };
+  if (s >= 80) return { label: "Strong", bg: "#D1FAE5", color: C.emerald };
+  if (s >= 60) return { label: "Decent", bg: "#E0E7FF", color: C.violet };
+  if (s >= 40) return { label: "Needs Work", bg: "#FEF3C7", color: "#D97706" };
   return { label: "Critical", bg: "#FEE2E2", color: C.red };
 };
 const GLOSSARY = {
@@ -239,7 +240,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
   SCORE = typeof auditRow?.score === "number" ? Math.round(auditRow.score) : 0;
   CATEGORIES = [
     { name: "Copy & Messaging", score: calcCategoryScore(nonManualFindings.filter((f) => (f.check_id || "").startsWith("C"))) },
-    { name: "CTA Effectiveness", score: calcCategoryScore(nonManualFindings.filter((f) => ["A1.4", "A5.2"].includes(f.check_id))) },
+    { name: "CTA Effectiveness", score: calcCategoryScore(nonManualFindings.filter((f) => ["A1.4", "A5.1", "A5.2", "A5.3", "A5.4"].includes(f.check_id))) },
     { name: "Trust & Social Proof", score: calcCategoryScore(nonManualFindings.filter((f) => ["A4.1", "A4.6"].includes(f.check_id))) },
     { name: "Layout & Hierarchy", score: calcCategoryScore(nonManualFindings.filter((f) => ["A1.6", "A3.2", "A7.2"].includes(f.check_id))) },
     { name: "Technical Readiness", score: calcCategoryScore(nonManualFindings.filter((f) => (f.check_id || "").startsWith("A7"))) },
@@ -295,7 +296,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
         ? "Missing trust signals reduce conversion by up to 2–3×. Add testimonials, logos, and social proof above fold."
         : "Strong trust foundation. Keep testimonials, logos, and security signals prominent.",
       color: C.violet,
-      emoji: trustFailing >= 2 ? "🔴" : trustFailing === 1 ? "🟠" : "",
+      emoji: trustFailing >= 2 ? "🔴" : trustFailing === 1 ? "🟠" : "🟢",
     },
     {
       numericPart: `~${friction}%`,
@@ -409,7 +410,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
             {summaryCopy}
           </p>
           <div style={{ display: "flex", justifyContent: "center", gap: 14 }}>
-            {[{ dot: C.red, text: `${CRITICAL.length} Critical` }, { dot: C.amber, text: `${MAJOR.length} Major` }, { dot: C.emerald, text: `${MINOR.length} Minor` }, { dot: C.textDim, text: `${PASSED.length} Passed` }].map((s, i) => (
+            {[{ dot: C.red, text: `${CRITICAL.length} Critical` }, { dot: C.amber, text: `${MAJOR.length} Major` }, { dot: C.yellow, text: `${MINOR.length} Minor` }, { dot: "#22C55E", text: `${PASSED.length} Passed` }].map((s, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
                 <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.dot }} />
                 <span style={{ fontSize: 12, fontWeight: 500, color: C.textMuted }}>{s.text}</span>
@@ -473,7 +474,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
           <StickyCard idx={4}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
               <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 18, fontWeight: 700, color: C.navy, margin: 0 }}>🟡 Minor</h2>
-              <SevPill label={`${MINOR.length} findings`} bg="rgba(20,213,113,0.1)" color={C.emerald} />
+              <SevPill label={`${MINOR.length} findings`} bg="rgba(234,179,8,0.18)" color={C.yellow} />
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {MINOR.map((f, i) => <FindingCard key={i} f={f} />)}
@@ -505,6 +506,11 @@ export default function FullReport({ auditId }: { auditId: string }) {
             <SevPill label={`${passingChecks.length} passed`} bg="rgba(255,255,255,0.9)" color={C.emerald} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {passingByCategory.length === 0 && (
+              <p style={{ fontSize: 12.5, color: C.textMuted, margin: 0 }}>
+                Run a new audit to see categorised results.
+              </p>
+            )}
             {(showAllPassed ? passingByCategory : passingByCategory.slice(0, 8)).map(([categoryLabel, count], i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: C.navy, fontWeight: 450 }}>
                 <GreenCheck />
