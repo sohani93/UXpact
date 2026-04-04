@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { useNavigate } from "react-router-dom";
 
 const C = {
   bg: "#EEF1F5",
@@ -155,10 +156,10 @@ function SymbolIcon({ char, gradient }) {
     <div style={{ width: 44, height: 44, borderRadius: 12, background: gradient, boxShadow: "0 4px 10px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 21, color: "#fff", fontWeight: 700, margin: "0 auto 12px" }}>{char}</div>
   );
 }
-function CTABox({ children, bg, border }) {
+function CTABox({ children, bg, border, onClick }) {
   const [hov, setHov] = useState(false);
   return (
-    <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+    <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)} onClick={onClick}
       style={{
         padding: "28px 20px", borderRadius: 14, background: bg, border, cursor: "pointer", textAlign: "center",
         boxShadow: hov ? "0 16px 40px rgba(0,0,0,0.18)" : "0 6px 20px rgba(0,0,0,0.08)",
@@ -185,6 +186,15 @@ export default function FullReport({ auditId }: { auditId: string }) {
   const [findings, setFindings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [pulseCopied, setPulseCopied] = useState(false);
+  const navigate = useNavigate();
+
+  const handlePulseSync = async () => {
+    if (!auditId) return;
+    try { await navigator.clipboard.writeText(String(auditId)); } catch {}
+    setPulseCopied(true);
+    setTimeout(() => setPulseCopied(false), 2500);
+  };
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return "";
@@ -375,6 +385,26 @@ export default function FullReport({ auditId }: { auditId: string }) {
       <div style={{ position: "fixed", top: -100, left: -60, width: 480, height: 480, background: "radial-gradient(circle, rgba(20,213,113,0.10) 0%, transparent 70%)", borderRadius: "50%", pointerEvents: "none" }} />
       <div style={{ position: "fixed", top: 600, right: -80, width: 380, height: 380, background: "radial-gradient(circle, rgba(91,97,244,0.06) 0%, transparent 70%)", borderRadius: "50%", pointerEvents: "none" }} />
       <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+      <style>{`
+  @media print {
+    body { background: #fff !important; }
+    nav { display: none !important; }
+    [style*="position: fixed"], [style*="position:fixed"] { display: none !important; }
+    [style*="position: sticky"], [style*="position:sticky"] {
+      position: relative !important;
+      top: auto !important;
+      z-index: auto !important;
+      box-shadow: none !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      background: #fff !important;
+      border: 1px solid #e5e7eb !important;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .cta-block { display: none !important; }
+  }
+`}</style>
 
       {/* PINNED NAV + HEADER */}
       {/* NAV + HEADER — normal flow, not sticky */}
@@ -546,7 +576,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
         </StickyCard>
 
         {/* CARD 8 — CTA */}
-        <div style={{
+        <div className="cta-block" style={{
           position: "relative", zIndex: 17, borderRadius: 16, padding: "48px 36px",
           background: `linear-gradient(135deg, ${C.forest}, ${C.mint})`,
           boxShadow: "0 8px 32px rgba(20,140,89,0.2), inset 0 1px 0 rgba(255,255,255,0.15)",
@@ -555,20 +585,24 @@ export default function FullReport({ auditId }: { auditId: string }) {
           <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 24, fontWeight: 700, color: "#fff", margin: "0 0 6px" }}>💜 You're all set.</h2>
           <p style={{ fontSize: 14, color: "rgba(255,255,255,0.8)", margin: "0 0 32px" }}>Your audit pack is ready. Download your report, grab your fix prompts & start tracking!</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24, maxWidth: 700, margin: "0 auto" }}>
-            <CTABox bg="#E8F8ED" border="1px solid rgba(20,213,113,0.2)">
+            <CTABox bg="#E8F8ED" border="1px solid rgba(20,213,113,0.2)" onClick={() => window.print()}>
               <SymbolIcon char="↓" gradient="linear-gradient(145deg, #22C55E, #16A34A)" />
               <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded',sans-serif", marginBottom: 4 }}>Download PDF</div>
               <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.4 }}>Save it, share it, hand it to your dev.</div>
             </CTABox>
-            <CTABox bg="#EEEEFA" border="1px solid rgba(91,97,244,0.15)">
+            <CTABox bg="#EEEEFA" border="1px solid rgba(91,97,244,0.15)" onClick={() => navigate(`/blueprint?auditId=${auditId}`)}>
               <SymbolIcon char="✦" gradient="linear-gradient(145deg, #818CF8, #5B61F4)" />
               <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded',sans-serif", marginBottom: 4 }}>Conversion Blueprint</div>
               <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.4 }}>AI-ready fix prompts for Cursor, Claude Code, or Lovable.</div>
             </CTABox>
-            <CTABox bg="#FFFFFF" border="1px solid rgba(0,0,0,0.06)">
+            <CTABox bg="#FFFFFF" border="1px solid rgba(0,0,0,0.06)" onClick={handlePulseSync}>
               <SymbolIcon char="◉" gradient="linear-gradient(145deg, #14D571, #148C59)" />
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded',sans-serif", marginBottom: 4 }}>Start Pulse Tracker</div>
-              <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.4 }}>Track every fix as you go. Know when you're done.</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded',sans-serif", marginBottom: 4 }}>
+                {pulseCopied ? "ID Copied ✓" : "Start Pulse Tracker"}
+              </div>
+              <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.4 }}>
+                {pulseCopied ? "Paste into the Pulse extension to sync." : "Track every fix as you go. Know when you're done."}
+              </div>
             </CTABox>
           </div>
         </div>
