@@ -1,7 +1,6 @@
 // @ts-nocheck
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { useNavigate } from "react-router-dom";
 
 const C = {
   bg: "#EEF1F5",
@@ -187,7 +186,6 @@ export default function FullReport({ auditId }: { auditId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [pulseCopied, setPulseCopied] = useState(false);
-  const navigate = useNavigate();
 
   const handlePulseSync = async () => {
     if (!auditId) return;
@@ -590,7 +588,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
               <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded',sans-serif", marginBottom: 4 }}>Download PDF</div>
               <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.4 }}>Save it, share it, hand it to your dev.</div>
             </CTABox>
-            <CTABox bg="#EEEEFA" border="1px solid rgba(91,97,244,0.15)" onClick={() => navigate(`/blueprint?auditId=${auditId}`)}>
+            <CTABox bg="#EEEEFA" border="1px solid rgba(91,97,244,0.15)" onClick={() => { window.location.href = `/blueprint?auditId=${auditId}`; }}>
               <SymbolIcon char="✦" gradient="linear-gradient(145deg, #818CF8, #5B61F4)" />
               <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded',sans-serif", marginBottom: 4 }}>Conversion Blueprint</div>
               <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.4 }}>AI-ready fix prompts for Cursor, Claude Code, or Lovable.</div>
