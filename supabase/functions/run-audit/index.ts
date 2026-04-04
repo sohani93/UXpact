@@ -233,9 +233,7 @@ function extractPageMetadata(args: { doc: Document; html: string; url: URL; stat
 
   // Try to scope to header nav first, fall back to first nav element only
   const headerEl = doc.querySelector("header");
-  const navEl = headerEl
-    ? headerEl.querySelector("nav")
-    : doc.querySelector("nav");
+  const navEl = headerEl?.querySelector("nav") ?? doc.querySelector("nav");
   const navLinks = navEl
     ? Array.from(navEl.querySelectorAll("a[href]")).map((anchor) => ({
       text: cleanText(anchor.textContent),
