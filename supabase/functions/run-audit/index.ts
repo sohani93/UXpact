@@ -278,8 +278,8 @@ function extractPageMetadata(args: { doc: Document; html: string; url: URL; stat
 function manual(id: string, name: string, category: string, severity: Severity, part: "A" | "B" | "C"): CheckResult {
   return {
     id, name, category, severity, part,
-    pass: true,
-    score: 0,
+    pass: false,
+    score: 5,
     manualReview: true,
     finding: "Requires visual review — not auto-assessed.",
     fix: "Review manually or commission a UX audit.",
@@ -552,22 +552,24 @@ function runPartCChecks(metadata: PageMetadata): CheckResult[] {
 
 // ─── SCORING ───
 function calculateScores(results: CheckResult[]): AuditScores {
-  const automated = results.filter((r) => !r.manualReview);
+  // All checks included in scoring. Manual checks score 5/10 (unverified risk).
+  // Automated checks score 0 or 10 based on pass/fail.
   const averageScore = (arr: CheckResult[]): number => {
     if (arr.length === 0) return 0;
     const avg = arr.reduce((s, r) => s + r.score, 0) / arr.length;
     return Math.round(avg * 10);
   };
-  const partA = averageScore(automated.filter((r) => r.part === "A"));
-  const partB = averageScore(automated.filter((r) => r.part === "B"));
-  const partC = averageScore(automated.filter((r) => r.part === "C"));
+  const partA = averageScore(results.filter((r) => r.part === "A"));
+  const partB = averageScore(results.filter((r) => r.part === "B"));
+  const partC = averageScore(results.filter((r) => r.part === "C"));
   const total = Math.round(partA * 0.5 + partB * 0.3 + partC * 0.2);
   const label = total >= 80 ? "Strong" : total >= 60 ? "Decent" : total >= 40 ? "Needs Work" : "Critical";
+  const automatedOnly = results.filter((r) => !r.manualReview);
   return {
     total, partA, partB, partC, label,
-    checksPassed: automated.filter((r) => r.pass).length,
+    checksPassed: automatedOnly.filter((r) => r.pass).length,
     checksFlagged: results.filter((r) => r.manualReview).length,
-    criticalIssues: automated.filter((r) => r.severity === "critical" && !r.pass).length,
+    criticalIssues: automatedOnly.filter((r) => r.severity === "critical" && !r.pass).length,
   };
 }
 
@@ -592,6 +594,8 @@ async function saveAuditResults(url: string, domain: string, industry: Industry,
   const rows = findings.map((f) => ({
     audit_id: auditData.id, check_id: f.id, name: f.name, severity: f.severity,
     pass: f.pass, score: f.score, finding: f.finding, fix: f.fix,
+    category: f.category ?? null,
+    part: f.part ?? null,
     dom_zone: f.domZone ?? "body-copy", glossary_terms: [],
   }));
   const { error: findingsError } = await supabase.from("audit_findings").insert(rows);
