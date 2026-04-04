@@ -231,23 +231,52 @@ function extractPageMetadata(args: { doc: Document; html: string; url: URL; stat
     }
   }
 
-  const navLinks = Array.from(doc.querySelectorAll("nav a[href]")).map((anchor) => ({ text: cleanText(anchor.textContent), href: anchor.getAttribute("href") ?? "" }));
+  // Try to scope to header nav first, fall back to first nav element only
+  const headerEl = doc.querySelector("header");
+  const navEl = headerEl
+    ? headerEl.querySelector("nav")
+    : doc.querySelector("nav");
+  const navLinks = navEl
+    ? Array.from(navEl.querySelectorAll("a[href]")).map((anchor) => ({
+      text: cleanText(anchor.textContent),
+      href: anchor.getAttribute("href") ?? "",
+    }))
+    : [];
   const allLinks = Array.from(doc.querySelectorAll("a[href]")).map((anchor) => {
     const href = anchor.getAttribute("href") ?? "";
     const resolved = safeResolveUrl(href, url);
     return { text: cleanText(anchor.textContent), href, isExternal: resolved ? resolved.origin !== url.origin : false };
   });
 
-  const logoLinksHome = Array.from(doc.querySelectorAll("a[href]")).some((anchor) => {
-    const href = anchor.getAttribute("href") ?? "";
-    const classes = [anchor.className, anchor.id].join(" ").toLowerCase();
-    const hasLogoSignal = classes.includes("logo") || Boolean(anchor.querySelector('img[alt*="logo" i], svg[aria-label*="logo" i]'));
-    if (!hasLogoSignal) return false;
+  const logoLinksHome = (() => {
+    // Check 1: anchor with logo signal in class/id/child img alt
+    const explicitLogo = Array.from(doc.querySelectorAll("a[href]")).some((anchor) => {
+      const href = anchor.getAttribute("href") ?? "";
+      const classes = [anchor.className, anchor.id].join(" ").toLowerCase();
+      const hasLogoSignal = classes.includes("logo")
+        || Boolean(anchor.querySelector('img[alt*="logo" i], svg[aria-label*="logo" i]'));
+      if (!hasLogoSignal) return false;
 
-    const resolved = safeResolveUrl(href, url);
-    if (!resolved) return ["/", "./", "#"].includes(href.trim());
-    return resolved.origin === url.origin && resolved.pathname === "/";
-  });
+      const resolved = safeResolveUrl(href, url);
+      if (!resolved) return ["/", "./", "#"].includes(href.trim());
+      return resolved.origin === url.origin && resolved.pathname === "/";
+    });
+    if (explicitLogo) return true;
+
+    // Check 2: first anchor in header that links to homepage root and wraps an img
+    const headerAnchor = doc.querySelector("header a[href]");
+    if (headerAnchor) {
+      const href = headerAnchor.getAttribute("href") ?? "";
+      const hasImg = Boolean(headerAnchor.querySelector("img, svg"));
+      const resolved = safeResolveUrl(href, url);
+      const linksHome = resolved
+        ? resolved.origin === url.origin && (resolved.pathname === "/" || resolved.pathname === "")
+        : ["/", "./", "#", url.origin].includes(href.trim());
+      if (hasImg && linksHome) return true;
+    }
+
+    return false;
+  })();
 
   const exAll = (pattern: RegExp, groupIndex = 1): string[] => {
     const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
