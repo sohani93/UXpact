@@ -261,8 +261,8 @@ const FacH2 = ({ children }) => (
 );
 
 // ── PinRow ────────────────────────────────────────────────────────────
-function PinRow({ zone, activeId, setActiveId }) {
-  const zf = FINDINGS.filter(f => f.zone === zone);
+function PinRow({ zone, activeId, setActiveId, findings }) {
+  const zf = findings.filter(f => f.zone === zone);
   if (!zf.length) return null;
   return (
     <div style={{ display: "flex", gap: 7, marginTop: 10 }}>
@@ -321,24 +321,57 @@ function PulseFooter() {
 export default function ConversionBlueprint({ auditId }: { auditId: string }) {
   const [activeId, setActiveId] = useState(null);
   const [auditData, setAuditData] = useState<any>(null);
+  const [findings, setFindings] = useState<any[]>([]);
   useEffect(() => {
     const load = async () => {
       const cached = sessionStorage.getItem(`audit:${auditId}`);
-      if (cached) { try { setAuditData(JSON.parse(cached)); return; } catch {} }
       const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
       if (!anon) return;
-      const res = await fetch(`https://oxminualycvnxofoevjs.supabase.co/rest/v1/audits?id=eq.${auditId}&select=*`, { headers: { apikey: anon, Authorization: `Bearer ${anon}` } });
-      if (!res.ok) return;
-      const rows = await res.json();
-      if (rows?.[0]) setAuditData(rows[0]);
+
+      // Fetch audit row
+      const auditRes = await fetch(
+        `https://oxminualycvnxofoevjs.supabase.co/rest/v1/audits?id=eq.${auditId}&select=*`,
+        { headers: { apikey: anon, Authorization: `Bearer ${anon}` } }
+      );
+      if (!auditRes.ok) return;
+      const auditRows = await auditRes.json();
+      if (auditRows?.[0]) {
+        setAuditData(auditRows[0]);
+      } else if (cached) {
+        try { setAuditData(JSON.parse(cached)); } catch {}
+      }
+
+      // Fetch findings
+      const findingsRes = await fetch(
+        `https://oxminualycvnxofoevjs.supabase.co/rest/v1/audit_findings?audit_id=eq.${auditId}&select=*`,
+        { headers: { apikey: anon, Authorization: `Bearer ${anon}` } }
+      );
+      if (!findingsRes.ok) return;
+      const findingsRows = await findingsRes.json();
+      setFindings(findingsRows ?? []);
     };
     void load();
   }, [auditId]);
 
-  const activeFinding = FINDINGS.find(f => f.id === activeId) || null;
-  const activeFindingIndex = activeFinding ? FINDINGS.indexOf(activeFinding) : 0;
+  const displayFindings = findings
+    .filter((f) => !f.pass && !f.manual_review)
+    .map((f, i) => ({
+      id: i + 1,
+      zone: f.dom_zone ?? f.domZone ?? "body-copy",
+      sev: f.severity
+        ? f.severity.charAt(0).toUpperCase() + f.severity.slice(1)
+        : "Minor",
+      title: f.name ?? "Untitled finding",
+      fix: f.finding ?? "",
+      prompt: f.ai_prompt ?? f.aiPrompt ?? "",
+    }));
 
-  const pinProps = { activeId, setActiveId };
+  const activeFindings = displayFindings.length > 0 ? displayFindings : FINDINGS;
+
+  const activeFinding = activeFindings.find(f => f.id === activeId) || null;
+  const activeFindingIndex = activeFinding ? activeFindings.indexOf(activeFinding) : 0;
+
+  const pinProps = { activeId, setActiveId, findings: activeFindings };
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden" }}>
@@ -380,16 +413,16 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
         {/* ── Pills row + severity counts ──────────────────────────── */}
         <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 28px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <div style={{ display: "flex", gap: 8 }}>
-            {[{ text: "yoursite.com", v: "green" }, { text: "Signups", v: "green" }, { text: "Demo requests", v: "violet" }].map((p, i) => (
+            {[{ text: auditData?.domain || "yoursite.com", v: "green" }, { text: "Signups", v: "green" }, { text: "Demo requests", v: "violet" }].map((p, i) => (
               <Pill key={i} text={p.text} v={p.v} />
             ))}
           </div>
           {/* Severity counts — right side */}
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             {[
-              { sev: "Critical", count: 2, dot: "#EF4444" },
-              { sev: "Major",    count: 3, dot: "#F59E0B" },
-              { sev: "Minor",    count: 2, dot: "#EAB308" },
+              { sev: "Critical", count: activeFindings.filter(f => f.sev === "Critical").length, dot: "#EF4444" },
+              { sev: "Major",    count: activeFindings.filter(f => f.sev === "Major").length,    dot: "#F59E0B" },
+              { sev: "Minor",    count: activeFindings.filter(f => f.sev === "Minor").length,    dot: "#EAB308" },
             ].map(({ sev, count, dot }) => (
               <div key={sev} style={{ display: "flex", alignItems: "center", gap: 5 }}>
                 <div style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flexShrink: 0 }} />
@@ -401,7 +434,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
         </div>
         {/* Hint — right-aligned, directly below severity row, zero top gap */}
         <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 28px 12px", display: "flex", justifyContent: "flex-end" }}>
-          <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>Click a pin to see the fix + AI prompt</span>
+          <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>Click a pin to see the fix + AI prompt ({activeFindings.length} findings)</span>
         </div>
 
         {/* ── Two-pane ─────────────────────────────────────────────── */}
