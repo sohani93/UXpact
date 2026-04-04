@@ -7,7 +7,7 @@ const C = {
   forest: "#186132", emerald: "#148C59", mint: "#14D571",
   violet: "#5B61F4", navy: "#0B1C48",
   textMuted: "#6B7280", textDim: "#9CA3AF",
-  red: "#DC2626", amber: "#F59E0B",
+  red: "#DC2626", amber: "#F97316",
 };
 const cardBgs = [
   { background: "rgba(255,255,255,0.65)", backdropFilter: "blur(24px)", border: "1px solid rgba(255,255,255,0.7)" },
@@ -223,6 +223,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
   };
   const passingByCategory = Object.entries(
     passingChecks.reduce((acc, f) => {
+      if (!f.category) return acc;
       const label = categoryLabels[f.category] ?? f.category;
       if (!acc[label]) acc[label] = 0;
       acc[label]++;
@@ -428,11 +429,12 @@ export default function FullReport({ auditId }: { auditId: string }) {
                 {r.emoji && <div style={{ position: "absolute", top: 12, right: 14, fontSize: 12 }}>{r.emoji}</div>}
                 <div style={{ marginBottom: 4 }}>
                   <span style={{ fontSize: 32, fontWeight: 800, color: r.color, fontFamily: "'Unbounded',sans-serif" }}>{r.numericPart}</span>
-                  {r.textPart && (
-                    <div style={{ fontSize: 12, fontWeight: 600, color: C.navy, fontFamily: "'Space Grotesk',sans-serif", marginTop: 2 }}>{r.textPart}</div>
-                  )}
                 </div>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, marginBottom: 10 }}>{r.label}</div>
+                {r.textPart ? (
+                  <div style={{ fontSize: 12, fontWeight: 600, color: C.navy, fontFamily: "'Space Grotesk',sans-serif", marginBottom: 10 }}>{r.textPart}</div>
+                ) : (
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, marginBottom: 10 }}>{r.label}</div>
+                )}
                 <div style={{ fontSize: 11.5, color: C.textMuted, lineHeight: 1.5 }}>{r.desc}</div>
               </div>
             ))}
@@ -476,14 +478,23 @@ export default function FullReport({ auditId }: { auditId: string }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {MINOR.map((f, i) => <FindingCard key={i} f={f} />)}
             </div>
-            <details style={{ marginTop: 16, cursor: "pointer" }}>
-              <summary style={{ fontSize: 12, fontWeight: 600, color: C.textDim }}>Glossary — tap to expand</summary>
-              <div style={{ marginTop: 10, fontSize: 12, color: C.textMuted, lineHeight: 1.7 }}>
-                {Object.entries(GLOSSARY).map(([term, def], i) => (
-                  <div key={i} style={{ marginBottom: 4 }}><b>{term}</b> — {def}</div>
-                ))}
-              </div>
-            </details>
+            {(() => {
+              const allFindingText = findings.map(f => `${f.name ?? ""} ${f.finding ?? ""}`).join(" ");
+              const activeTerms = Object.entries(GLOSSARY).filter(([term]) =>
+                allFindingText.toLowerCase().includes(term.toLowerCase())
+              );
+              if (activeTerms.length === 0) return null;
+              return (
+                <details style={{ marginTop: 16, cursor: "pointer" }}>
+                  <summary style={{ fontSize: 12, fontWeight: 600, color: C.textDim }}>Glossary — tap to expand</summary>
+                  <div style={{ marginTop: 10, fontSize: 12, color: C.textMuted, lineHeight: 1.7 }}>
+                    {activeTerms.map(([term, def], i) => (
+                      <div key={i} style={{ marginBottom: 4 }}><b>{term}</b> — {def}</div>
+                    ))}
+                  </div>
+                </details>
+              );
+            })()}
           </StickyCard>
         )}
 
