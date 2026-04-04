@@ -106,11 +106,14 @@ export default function CompactResults({ auditId, score, scoreLabel, scoreSummar
           <div style={{ marginTop: -2, padding: "4px 16px", borderRadius: 20, background: scoreLabel === "Critical" ? "#FEE2E2" : "#E0E7FF", fontSize: 11, fontWeight: 600, color: scoreLabel === "Critical" ? "#DC2626" : "#5B61F4" }}>{scoreLabel}</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0, width: "100%", maxWidth: 420, borderRadius: 10, overflow: "hidden", border: "1px solid rgba(255,255,255,0.65)", background: "rgba(255,255,255,0.5)" }}>
             <div style={{ padding: "16px 18px", borderRight: "1px solid rgba(0,0,0,0.05)", textAlign: "center" }}>
-              <span style={{ fontSize: 22, fontWeight: 800, color: "#186132", fontFamily: "'Unbounded', sans-serif" }}>🔻 ~{dropoff}%</span>
+              <span style={{ fontSize: 22, fontWeight: 800, color: "#186132", fontFamily: "'Unbounded', sans-serif", whiteSpace: "nowrap", display: "block" }}>🔻 ~{dropoff}%</span>
               <div style={{ fontSize: 11, fontWeight: 500, color: "#6B7280" }}>mobile drop-off</div>
             </div>
             <div style={{ padding: "16px 18px", textAlign: "center" }}>
-              <span style={{ fontSize: 22, fontWeight: 800, color: "#0B1C48", fontFamily: "'Unbounded', sans-serif" }}>⚠️ ~{atRisk}</span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                <span style={{ fontSize: 13 }}>⚠️</span>
+                <span style={{ fontSize: 18, fontWeight: 800, color: "#0B1C48", fontFamily: "'Unbounded', sans-serif", whiteSpace: "nowrap" }}>~{atRisk}</span>
+              </div>
               <div style={{ fontSize: 11, fontWeight: 500, color: "#6B7280" }}>at risk</div>
             </div>
           </div>
