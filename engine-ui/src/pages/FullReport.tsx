@@ -279,23 +279,26 @@ export default function FullReport({ auditId }: { auditId: string }) {
 
   const revenueLeaks = [
     {
-      pct: `~${dropoff}%`,
+      numericPart: `~${dropoff}%`,
+      textPart: null,
       label: "mobile drop-off",
       desc: "of mobile visitors exit before your CTA appears. CTA above fold lifts conversion by 28–47%.",
       color: C.forest,
       emoji: dropoff >= 50 ? "🔴" : dropoff >= 35 ? "🟠" : "🟡",
     },
     {
-      pct: trustFailing === 3 ? "3/3 trust signals missing" : trustFailing === 2 ? "2/3 trust signals missing" : trustFailing === 1 ? "1/3 trust signals missing" : "Trust signals present",
+      numericPart: trustFailing > 0 ? `${trustFailing}/3` : "3/3",
+      textPart: trustFailing > 0 ? "trust signals missing" : "trust signals present",
       label: "trust coverage",
       desc: trustFailing > 0
         ? "Missing trust signals reduce conversion by up to 2–3×. Add testimonials, logos, and social proof above fold."
         : "Strong trust foundation. Keep testimonials, logos, and security signals prominent.",
       color: C.violet,
-      emoji: trustFailing === 3 ? "🔴" : trustFailing === 2 ? "🟠" : trustFailing === 1 ? "🟡" : "",
+      emoji: trustFailing >= 2 ? "🔴" : trustFailing === 1 ? "🟠" : "",
     },
     {
-      pct: `~${friction}%`,
+      numericPart: `~${friction}%`,
+      textPart: null,
       label: "copy friction",
       desc: "conversion lift missed from feature-led vs benefit-led copy. Benefit-led headlines outperform feature-led by 18–32%.",
       color: C.emerald,
@@ -423,9 +426,11 @@ export default function FullReport({ auditId }: { auditId: string }) {
             {revenueLeaks.map((r, i) => (
               <div key={i} style={{ padding: "28px 24px", borderRadius: 14, background: "#FFFFFF", border: "1px solid rgba(0,0,0,0.06)", textAlign: "center", position: "relative", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}>
                 {r.emoji && <div style={{ position: "absolute", top: 12, right: 14, fontSize: 12 }}>{r.emoji}</div>}
-                <div style={{ fontWeight: 800, color: r.color, fontFamily: "'Unbounded',sans-serif", marginBottom: 4 }}>
-                  <span style={{ fontSize: 32 }}>{r.pct.split(" ")[0]}</span>
-                  {r.pct.includes(" ") && <span style={{ fontSize: 12.5, fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, marginLeft: 6, color: C.navy }}>{r.pct.slice(r.pct.indexOf(" ") + 1)}</span>}
+                <div style={{ marginBottom: 4 }}>
+                  <span style={{ fontSize: 32, fontWeight: 800, color: r.color, fontFamily: "'Unbounded',sans-serif" }}>{r.numericPart}</span>
+                  {r.textPart && (
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.navy, fontFamily: "'Space Grotesk',sans-serif", marginTop: 2 }}>{r.textPart}</div>
+                  )}
                 </div>
                 <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, marginBottom: 10 }}>{r.label}</div>
                 <div style={{ fontSize: 11.5, color: C.textMuted, lineHeight: 1.5 }}>{r.desc}</div>
