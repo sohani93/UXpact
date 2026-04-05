@@ -650,7 +650,7 @@ async function saveAuditResults(url: string, domain: string, industry: Industry,
   const { data: auditData, error: auditError } = await supabase.from("audits").insert({
     url, domain, industry, status: "complete",
     score: scores.total, part_a_score: scores.partA, part_b_score: scores.partB, part_c_score: scores.partC,
-    score_label: scores.label, checks_passed: scores.checksPassed, checks_flagged: scores.checksFlagged, critical_issues: scores.criticalIssues,
+    score_label: scores.label, checks_passed: scores.checksPassed, checks_flagged: scores.checksFlagged, critical_issues: scores.criticalIssues, dom_data: domData,
   }).select("id").single();
   if (auditError || !auditData?.id) throw new Error(`Failed to create audit: ${auditError?.message}`);
   const rows = findings.map((f) => ({
