@@ -206,12 +206,13 @@ function FixDrawer({ finding, findingIndex, onClose }) {
             fontFamily: "'Space Grotesk', sans-serif",
           }}>AI-ready prompt</div>
           {/* Copy icon button */}
-          <button onClick={copy} title="Copy prompt" style={{
+          <button onClick={finding.prompt ? copy : undefined} title="Copy prompt" style={{
             background: copied ? "linear-gradient(135deg, #186132, #14D571)" : "rgba(255,255,255,0.75)",
             border: copied ? "none" : `1px solid ${fixBg.border}`,
             borderRadius: 8, width: 30, height: 30,
             display: "flex", alignItems: "center", justifyContent: "center",
-            cursor: "pointer", transition: "all 0.2s", flexShrink: 0,
+            cursor: finding.prompt ? "pointer" : "default", transition: "all 0.2s", flexShrink: 0,
+            opacity: finding.prompt ? 1 : 0.4,
           }}>
             {copied ? (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -233,7 +234,11 @@ function FixDrawer({ finding, findingIndex, onClose }) {
           fontSize: 11.5, lineHeight: 1.7,
           fontFamily: "'Space Grotesk', sans-serif",
           color: "#374151", whiteSpace: "pre-wrap",
-        }}>{finding.prompt}</div>
+        }}>
+          {finding.prompt
+            ? finding.prompt
+            : "AI prompt will be available on your next audit run."}
+        </div>
       </div>
 
       <div style={{ padding: "10px 16px", borderTop: `1px solid ${fixBg.border}` }}>
@@ -370,7 +375,9 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
         ? f.severity.charAt(0).toUpperCase() + f.severity.slice(1)
         : "Minor",
       title: f.name ?? "Untitled finding",
-      fix: f.finding ?? "",
+      fix: `${f.finding ?? ""}
+
+**Recommended fix:** ${f.fix ?? ""}`,
       prompt: f.ai_prompt ?? f.aiPrompt ?? "",
     }));
 

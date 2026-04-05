@@ -582,6 +582,714 @@ function getTopFindings(findings: CheckResult[], limit: number): CheckResult[] {
     .slice(0, limit);
 }
 
+const AI_PROMPT_TEMPLATES: Record<string, string> = {
+  "A1.1": `Rewrite the hero H1 for {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Under 10 words
+- Lead with the user outcome, not the product or company name
+- Use "you" language
+- No jargon or buzzwords
+- Tone: direct and confident
+
+Write 3 headline options, each under 10 words.`,
+  "A1.2": `Write a supporting subheadline for {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- 1–2 sentences, max 25 words
+- Expands on the H1 — adds specificity or context
+- Names the user, their problem, or the outcome
+- Does not repeat the H1
+
+Write 3 subheadline options.`,
+  "A1.3": `Improve the visual hierarchy of the hero section on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Define a clear reading order: H1 → subheadline → CTA → supporting content
+- Reduce visual noise
+- Recommend font size ratios, spacing, and element prioritisation
+
+Write a visual hierarchy brief for the hero section.`,
+  "A1.4": `Rewrite the primary CTA button copy for {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Format: [strong action verb] + [specific benefit or outcome]
+- Under 5 words
+- Avoid: Submit, Click, Go, Continue, Learn More
+- Reduce commitment anxiety where possible
+
+Write 3 CTA button copy options.`,
+  "A1.5": `Add a secondary CTA to the hero section of {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Lower commitment than the primary CTA
+- Examples: "See a 2-min demo", "Watch how it works", "Explore features"
+- Visually subordinate — outline or ghost button style
+
+Write 3 secondary CTA options with a brief description of the button treatment.`,
+  "A1.6": `Improve visual contrast and readability on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Identify text/background combinations failing WCAG AA (4.5:1 for body, 3:1 for large text)
+- Recommend specific hex colour replacements
+- Flag text placed over images without sufficient overlay
+- Include CSS changes needed
+
+Write a contrast audit with specific colour recommendations.`,
+  "A1.7": `Improve the relevance of the hero section to the core offer on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Hero copy, image, and CTA must all reference the same product or outcome
+- Identify misalignment between visual and copy
+- Rewrite hero copy to be tightly aligned to the primary offer
+
+Write revised hero copy and an image direction brief.`,
+  "A1.8": `Reduce above-fold complexity on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Keep: H1, subheadline, one primary CTA, optional hero image
+- Remove or defer: secondary nav items, banners, multiple badges, social proof rows
+- Explain the rationale for each removal
+
+Write a prioritised list of elements to cut and why.`,
+  "A2.1": `Restructure the navigation for {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Max 5–7 nav items
+- Most important conversion path on the right as a button
+- Group related items if needed
+
+Suggest a revised nav structure with item labels and groupings.`,
+  "A2.2": `Improve the mobile navigation on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Most critical conversion action accessible within 1 tap
+- Nav items min 48px touch targets
+- Recommend menu open/close behaviour
+
+Write a mobile navigation UX brief with structure and interaction notes.`,
+  "A2.3": `Fix the logo link on {{domain}}.
+
+Audit finding: {{finding}}
+
+Write the HTML anchor tag wrapping the logo so it links to the homepage root (/). Include aria-label="Go to homepage" for accessibility.`,
+  "A2.4": `Improve the footer on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Include: company name, key nav links, legal links (Privacy, Terms), social icons, copyright
+- Clean layout — 2–4 columns max
+
+Write a footer content structure with recommended sections and copy.`,
+  "A2.5": `Add breadcrumbs to the deep pages on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Show current location in the site hierarchy
+- Clickable parent links
+- Use schema.org BreadcrumbList structured data
+
+Write the HTML + JSON-LD schema for a breadcrumb component.`,
+  "A3.1": `Clarify the value proposition on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Answer in one sentence: what it is, who it's for, and what outcome it delivers
+- Format: "[Product] helps [audience] [achieve outcome] by [mechanism]"
+- Should be visible above the fold
+
+Write the value proposition statement and a revised hero copy block using it.`,
+  "A3.2": `Rewrite the body copy on {{domain}} for scannability.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Short paragraphs — max 3 lines each
+- Add subheadings every 2–3 paragraphs
+- Use bullet points for lists of 3 or more items
+- Bold the most important phrase in each paragraph
+
+Rewrite the longest body section using these principles.`,
+  "A3.3": `Improve the microcopy on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Form field labels: short and specific
+- Placeholder text: example-based (e.g. "jane@example.com" not "Enter your email")
+- Button labels: action + outcome
+- Error messages: human, specific, tell the user what to do
+
+Rewrite the form labels, placeholders, button copy, and one error message.`,
+  "A3.4": `Rewrite the error messages on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Human and specific — tell the user exactly what went wrong
+- Tell the user how to fix it
+- No generic "Something went wrong" messages
+- Positive framing where possible
+
+Write 5 example error messages for common form validation scenarios.`,
+  "A3.5": `Remove placeholder text from {{domain}}.
+
+Audit finding: {{finding}}
+
+Replace all identified placeholder text with production-ready copy or realistic stand-ins formatted as examples, not instructional text.`,
+  "A3.6": `Proofread and improve the copy on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Fix spelling and grammar errors
+- Ensure consistent capitalisation and punctuation
+- Remove filler words and redundant phrases
+- Flag passive voice and suggest active alternatives
+
+List all corrections with before/after examples.`,
+  "A4.1": `Add social proof to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Write 3 short customer testimonial quotes (1 sentence each, max 15 words)
+- Each quote must name a specific measurable outcome
+- Include placeholder name, role, and company
+- Sound authentic — specific and direct, not marketing-speak
+
+Write 3 testimonial quotes and the HTML structure to display them.`,
+  "A4.2": `Add specific credibility signals to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Replace vague claims ("thousands of customers") with specific numbers ("2,400+ customers")
+- Add named outcomes ("reduced onboarding time by 60%")
+- Include industry or company names where possible
+
+Write 3 specific credibility claims and the HTML for a metrics row.`,
+  "A4.3": `Add client or partner logos to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Display 4–8 recognisable logos in a horizontal row
+- Add a headline: "Trusted by teams at..." or "Used by..."
+- Monochrome or low-saturation treatment for visual consistency
+
+Write the section headline, logo grid structure, and optional subheadline.`,
+  "A4.4": `Add case study content to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Structure: Customer name + role → Problem → Solution → Specific measurable outcome
+- 100–150 words per case study
+- Pull quote with the most impressive number or outcome
+
+Write one full case study in the required structure with placeholder details.`,
+  "A4.5": `Add security and trust signals to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Place a privacy reassurance line near every form CTA
+- Include SSL/HTTPS badge if relevant
+- Link to privacy policy inline
+
+Write the trust copy for near-CTA placement and the HTML for a security badge row.`,
+  "A4.6": `Add trust signals near the CTAs on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Every primary CTA should have a 1-line trust reinforcement beneath it
+- Examples: "No credit card required", "Cancel anytime", "GDPR compliant"
+- Match the trust signal to the likely objection at each CTA position
+
+Write trust micro-copy for each CTA on the page with the matching objection it addresses.`,
+  "A5.1": `Add CTAs at missing positions on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- CTA at hero, mid-page after the strongest value section, and bottom of page
+- Each CTA copy should reflect the content that precedes it
+- Don't use identical copy at every position
+
+Write copy for 3 positioned CTAs with their placement rationale.`,
+  "A5.2": `Improve the visual prominence of CTAs on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Primary CTA: filled button, brand colour, high contrast
+- Secondary CTA: outline or ghost style
+- Min button size: 44px height, 120px width
+- Include hover state
+
+Write the CSS for primary and secondary button styles with hover states.`,
+  "A5.3": `Rewrite the CTA copy on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Format: [action verb] + [specific benefit or outcome]
+- Avoid generic verbs: Submit, Click, Go, Send, Continue
+- Under 5 words for buttons, up to 10 words for link CTAs
+
+Write 3 improved CTA options for the primary conversion action.`,
+  "A5.4": `Consolidate the CTAs on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Identify the single primary conversion action for this page
+- Maximum: 1 primary CTA + 1 secondary CTA per section
+- Explain which CTAs to cut and why
+
+Write the revised CTA hierarchy with copy and button treatment for each.`,
+  "A5.5": `Fix CTA contrast and placement on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Button text must meet WCAG AA contrast ratio (4.5:1) against button background
+- Primary CTA must be visible above the fold on all screen sizes
+
+Write specific CSS fixes for contrast and placement with before/after values.`,
+  "A6.1": `Improve the visual hierarchy on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- One dominant visual focus per section
+- Size, weight, and colour should signal importance
+- Reduce the number of elements competing for attention
+
+Write a section-by-section visual hierarchy brief with specific recommendations.`,
+  "A6.2": `Improve typography readability on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Body font size: min 16px
+- Line height: 1.5–1.75 for body text
+- Line length: 60–75 characters per line
+- Sufficient contrast between heading and body weights
+
+Write a typography system recommendation with specific CSS values.`,
+  "A6.3": `Improve whitespace balance on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Increase padding between sections (min 80px vertical)
+- Add breathing room around CTAs and key headlines
+- Recommend consistent spacing tokens (8px base grid)
+
+Write a spacing audit with specific CSS padding/margin recommendations per section.`,
+  "A6.4": `Improve image quality and consistency on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- All images should share a consistent style
+- No low-resolution or stretched images
+- Compress images for web (WebP preferred, under 200KB for hero)
+- Alt text on all meaningful images
+
+Write an image audit brief with specific replacement or treatment recommendations.`,
+  "A7.1": `Write optimised meta tags for {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Meta title: 50–60 characters, include primary keyword + brand name
+- Meta description: 120–160 characters, include primary keyword and a CTA
+
+Write the meta title and description as ready-to-use HTML meta tags.`,
+  "A7.2": `Fix the heading structure on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Exactly one H1 per page
+- H2 for main sections, H3 for subsections
+- No skipped heading levels
+
+Write the corrected heading outline for the page with recommended copy for each level.`,
+  "A7.3": `Write alt text for the images on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Descriptive alt text for all meaningful images
+- Empty alt="" for purely decorative images
+- Max 125 characters per alt text
+- Include keywords naturally — don't keyword-stuff
+
+Write alt text for 5 common image types on this site (hero, feature icons, team photos, product screenshots, logos).`,
+  "A7.4": `Add missing meta and social sharing tags to {{domain}}.
+
+Audit finding: {{finding}}
+
+Write the complete HTML <head> block including og:title, og:description, og:image (1200×630px), og:url, favicon link, and twitter:card. Include recommended dimensions and character counts as comments.`,
+  "B1.1": `Define and communicate the target user more clearly on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- The hero section should name the target user within the first 10 words
+- Avoid generic "teams" or "businesses" — be specific
+- The entire page copy should speak to one primary persona
+
+Rewrite the hero headline and subheadline to name the target user explicitly.`,
+  "B1.2": `Add pricing transparency to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Show plan names, monthly price, and 3 key features per tier
+- Add a value anchor sentence above the pricing grid to justify cost
+- If no public pricing: add a clear "Contact us for pricing" CTA
+
+Write the value anchor copy and pricing section structure.`,
+  "B1.3": `Write a "How it works" section for {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- 3 steps maximum
+- Each step: short title (3–5 words) + 1-sentence description
+- Start from the user's perspective ("Connect your store", "Review your dashboard")
+
+Write the 3-step section with titles, descriptions, and icon suggestions.`,
+  "B1.4": `Improve feature clarity on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Each feature card: title + 1-sentence benefit-led description
+- Lead with what the user gets, not what the feature does
+- Add a "Why it matters" line if the feature is technical
+
+Rewrite 3 feature descriptions using the benefit-led format.`,
+  "B1.5": `Add a free trial or demo offer to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Reduce commitment with "no credit card required" or "cancel anytime"
+- CTA should appear in the hero and at least one mid-page position
+- Write the CTA button copy and a 1-line value reinforcement beneath it
+
+Write 3 low-commitment CTA options with supporting trust micro-copy.`,
+  "B1.6": `Reduce onboarding friction on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Signup form: max 2–3 fields
+- Add a "takes 2 minutes" or "no setup required" reassurance near the form
+- Show what happens after signup
+- Remove any fields that aren't essential for first login
+
+Write the revised signup form structure with field labels, copy, and trust micro-copy.`,
+  "B1.7": `Add integration signals to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Display logos of 6–12 tools the product integrates with
+- Add a headline: "Works with the tools you already use"
+- Link to a full integrations page if available
+
+Write the section headline, logo grid structure, and optional subheadline.`,
+  "B2.1": `Improve product imagery on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Multiple angles per product (min 3 images)
+- Clean background for primary image
+- Lifestyle image showing the product in use
+- Consistent image dimensions across all products
+
+Write a product photography brief with shot list and technical specifications.`,
+  "B2.2": `Make pricing more visible on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Price must be visible without scrolling on all devices
+- Show original price crossed out alongside sale price
+- Use sufficient font size (min 20px for price)
+
+Write the price display HTML with typography recommendations.`,
+  "B2.5": `Add shipping and returns information to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Show estimated delivery time near the purchase CTA
+- State return window clearly
+- Include free shipping threshold if applicable
+
+Write the shipping/returns micro-copy block for near-CTA placement.`,
+  "B2.8": `Add trust and security signals near the purchase CTA on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Payment icons: Visa, Mastercard, PayPal, Stripe (whichever apply)
+- SSL/secure badge and money-back guarantee
+- Customer review count and star rating
+- Place all within 100px of the buy button
+
+Write the trust signal block HTML with placeholder badge images and copy.`,
+  "B3.1": `Improve portfolio presentation on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Each project: title, brief description, your role, outcome or result
+- Show process or before/after, not just final outputs
+- Consistent image treatment across all portfolio items
+
+Write a portfolio item template with all required fields and placeholder copy.`,
+  "B3.2": `Improve the about section on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Name + professional photo
+- 2–3 sentences: who you are, what you specialise in, years of experience
+- Name 2–3 notable clients, brands, or outcomes
+- Tone: confident but approachable — first person
+
+Write a bio in 2 versions: short (50 words) and long (120 words).`,
+  "B3.3": `Add a clear contact method to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Contact form: name, email, message — max 3 fields
+- Add a 1-line invitation: "Let's work together" or "Open to new projects"
+- Place in the hero, after work samples, and in the footer
+
+Write the contact section copy and the HTML form structure.`,
+  "B4.1": `Add medical disclaimers to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- "This content is for informational purposes only and does not constitute medical advice"
+- "Consult a qualified healthcare professional before making any medical decisions"
+- Place in the footer and near any health claims
+
+Write the disclaimer copy and recommend placement positions.`,
+  "B4.3": `Add privacy and data handling signals to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- State clearly how patient or user data is handled
+- Reference HIPAA, GDPR, or relevant regulation
+- Add a reassurance line near any form or data collection point
+
+Write the privacy statement copy and recommend placement positions.`,
+  "B5.1": `Add regulatory and compliance signals to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Display relevant regulatory body (FCA, SEC, etc.) with registration number
+- Add "Authorised and regulated by [body]" in the footer
+- Link to the regulatory record
+
+Write the regulatory disclosure copy and footer HTML.`,
+  "B5.3": `Add fee transparency to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Show all fees clearly — transaction fees, monthly fees, FX markups
+- "No hidden fees" statement if applicable
+- Link to a full fee schedule
+
+Write the fee transparency section copy and a comparison table structure.`,
+  "B6.1": `Clearly list services on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- List each service with: name, 1-sentence description, who it's for
+- Group related services if more than 5
+- Add a "Most popular" badge to one service
+
+Write a services section with 3 example service cards.`,
+  "B6.2": `Add a process section to {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- 3–4 steps maximum
+- Each step: number + title + 1-sentence description
+- Start with discovery/consultation, end with results/delivery
+
+Write the process section with step titles and descriptions.`,
+  "B6.5": `Reduce booking friction on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Add a Calendly link or short contact form (name + email + message — max 3 fields)
+- CTA copy: "Book a free call", "Schedule a consultation", "Get in touch"
+- Add a 1-line reassurance: "Usually responds within 24 hours"
+
+Write the booking CTA copy and the short form HTML.`,
+  "C1.1": `Improve brand tone consistency across {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Define a tone-of-voice in 3 adjectives
+- Identify sections where the tone shifts or feels inconsistent
+- Rewrite 2 inconsistent sections to match the defined tone
+
+Write the tone-of-voice definition and rewrite 2 sections to match it.`,
+  "C1.2": `Sharpen the value narrative on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- The narrative should answer: why this product, why now, why for this person
+- Every section should reinforce one central idea
+- Identify where the narrative loses focus or contradicts itself
+
+Write a one-paragraph narrative brief and rewrite the hero + first body section to align with it.`,
+  "C2.1": `Improve audience resonance on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Use language your target audience uses — not internal jargon
+- Name their specific problem in the first 2 sections
+- Reference the emotional state of the problem (frustration, wasted time, missed revenue)
+
+Rewrite the hero and first body section to deeply resonate with the target audience.`,
+  "C2.2": `Improve the relevance of the offer to the audience on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- The offer must directly address the audience's most pressing problem
+- Lead with the benefit the audience cares about most
+- Add specificity: name the audience, their industry, or their use case
+
+Rewrite the offer description to tightly match the audience's primary pain point.`,
+  "C3.1": `Sharpen the positioning on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Complete this sentence: "[Product] is the only [category] that [differentiator] for [audience]"
+- The positioning should be visible in the H1 or subheadline
+- Must differentiate from the top 2–3 competitors
+
+Write the positioning statement and integrate it into the hero copy.`,
+  "C3.2": `Strengthen the differentiation on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Identify the 1–2 things this product does that competitors don't
+- Express the differentiator in concrete, specific terms (not "best", "fastest", "easiest")
+- Back the differentiator with a proof point (stat, customer quote, or feature)
+
+Write a differentiator section with headline, description, and proof point.`,
+  "C4.1": `Rewrite the company-centric copy on {{domain}} to be customer-centric.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Replace "We offer...", "Our platform...", "We built..." with "You get...", "Your team...", "You can..."
+- Target a 4:1 you/we ratio across the page
+- Keep the same meaning — only change the subject and perspective
+
+Rewrite the hero headline, subheadline, and first body paragraph using customer-centric language.`,
+  "C4.2": `Rewrite the feature-focused copy on {{domain}} to be benefit-led.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Lead every section with the user outcome, support it with the feature
+- Pattern: "[Outcome you get] — [because/using feature]"
+- Keep technical accuracy — don't sacrifice specificity for vagueness
+
+Rewrite 3 feature descriptions using the benefit-led pattern.`,
+  "C5.1": `Improve visual-message consistency on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Every image or illustration should reinforce the copy next to it
+- No generic stock photos unrelated to the product
+- Hero image should show the product or the outcome it delivers
+
+Write an image direction brief for each major section.`,
+  "C5.2": `Improve the reading path to CTA on {{domain}}.
+
+Audit finding: {{finding}}
+
+Requirements:
+- Each CTA should appear immediately after the strongest persuasive content block
+- The sentence before each CTA should create desire or resolve an objection
+- Build momentum: problem → solution → proof → CTA
+
+Write transition copy leading into the primary CTA and one mid-page CTA.`,
+};
+
+const FALLBACK_PROMPT = `Fix the following issue on {{domain}}.
+
+Finding: {{finding}}
+Recommended fix: {{fix}}
+
+Implement this fix, maintaining the existing design language and tone of the site.`;
+
+function generatePrompt(checkId: string, finding: string, fix: string, domain: string): string {
+  const template = AI_PROMPT_TEMPLATES[checkId] ?? FALLBACK_PROMPT;
+  return template
+    .replace(/{{finding}}/g, finding)
+    .replace(/{{fix}}/g, fix)
+    .replace(/{{domain}}/g, domain);
+}
+
 const DOM_ZONE_MAP: Record<string, string> = {
   // Hero / first impression
   "A1.1": "hero",
@@ -659,6 +1367,7 @@ async function saveAuditResults(url: string, domain: string, industry: Industry,
     category: f.category ?? null,
     part: f.part ?? null,
     dom_zone: DOM_ZONE_MAP[f.id] ?? "body-copy", glossary_terms: [],
+    ai_prompt: generatePrompt(f.id, f.finding, f.fix, domain),
   }));
   const { error: findingsError } = await supabase.from("audit_findings").insert(rows);
   if (findingsError) throw new Error(`Failed to save findings: ${findingsError.message}`);
