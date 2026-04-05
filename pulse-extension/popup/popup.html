@@ -1,14 +1,16 @@
 <!doctype html>
 <html>
-  <body style="width:280px;padding:12px;font-family:sans-serif;">
-    <h3 style="margin:0 0 10px;font-size:14px;">UXpact Pulse</h3>
-    <div id="setupSection">
-      <p style="font-size:11px;color:#6B7280;margin:0 0 6px;">Enter your Supabase anon key (first time only)</p>
-      <input id="anonKey" placeholder="eyJ..." style="width:100%;box-sizing:border-box;margin-bottom:6px;padding:6px;font-size:11px;border:1px solid #e5e7eb;border-radius:4px;" />
+  <body style="width:300px;padding:14px;font-family:'Segoe UI',sans-serif;background:#f9fafb;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+      <div style="width:28px;height:28px;border-radius:7px;background:linear-gradient(135deg,#186132,#14D571);display:flex;align-items:center;justify-content:center;">
+        <span style="color:#fff;font-size:14px;">◉</span>
+      </div>
+      <strong style="font-size:14px;color:#0B1C48;">UXpact Pulse</strong>
     </div>
-    <input id="auditId" placeholder="Audit ID" style="width:100%;box-sizing:border-box;margin-bottom:6px;padding:6px;font-size:12px;border:1px solid #e5e7eb;border-radius:4px;" />
-    <button id="syncBtn" style="width:100%;padding:8px;background:#148C59;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">Sync checklist</button>
-    <p id="status" style="font-size:11px;color:#6B7280;margin:6px 0 0;"></p>
+    <p style="font-size:11px;color:#6B7280;margin:0 0 8px;">Paste your Audit ID to sync your fix checklist.</p>
+    <input id="auditId" placeholder="Paste Audit ID here" style="width:100%;box-sizing:border-box;padding:8px 10px;font-size:12px;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:8px;outline:none;" />
+    <button id="syncBtn" style="width:100%;padding:9px;background:linear-gradient(135deg,#186132,#14D571);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">Sync checklist</button>
+    <p id="status" style="font-size:11px;color:#6B7280;margin:8px 0 0;min-height:16px;"></p>
     <script src="popup.js"></script>
   </body>
 </html>

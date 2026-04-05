@@ -602,7 +602,9 @@ export default function FullReport({ auditId }: { auditId: string }) {
                 {pulseCopied ? "ID Copied ✓" : "Start Pulse Tracker"}
               </div>
               <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.4 }}>
-                {pulseCopied ? "Paste into the Pulse extension to sync." : "Track every fix as you go. Know when you're done."}
+                {pulseCopied
+                  ? "Paste into the Pulse extension to sync."
+                  : "Copy your ID · Paste in Pulse · Start fixing."}
               </div>
             </CTABox>
           </div>
