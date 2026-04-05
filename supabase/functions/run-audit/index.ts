@@ -582,6 +582,68 @@ function getTopFindings(findings: CheckResult[], limit: number): CheckResult[] {
     .slice(0, limit);
 }
 
+const DOM_ZONE_MAP: Record<string, string> = {
+  // Hero / first impression
+  "A1.1": "hero",
+  "A1.2": "hero",
+  "A1.3": "hero",
+  "A1.4": "hero",
+  "A1.5": "hero",
+  "A1.6": "hero",
+  "A1.7": "hero",
+  "A1.8": "hero",
+  // Navigation
+  "A2.1": "nav",
+  "A2.2": "nav",
+  "A2.3": "nav",
+  "A2.4": "nav",
+  "A2.5": "nav",
+  // Copy & messaging
+  "A3.1": "features",
+  "A3.2": "features",
+  "A3.3": "features",
+  "A3.4": "features",
+  "A3.5": "features",
+  "A3.6": "features",
+  // Trust & social proof
+  "A4.1": "social",
+  "A4.2": "social",
+  "A4.3": "social",
+  "A4.4": "social",
+  "A4.5": "social",
+  "A4.6": "social",
+  // CTA & conversion
+  "A5.1": "cta2",
+  "A5.2": "cta2",
+  "A5.3": "cta2",
+  "A5.4": "cta2",
+  "A5.5": "cta2",
+  // Layout & visual
+  "A6.1": "features",
+  "A6.2": "features",
+  "A6.3": "features",
+  "A6.4": "features",
+  // Technical
+  "A7.1": "nav",
+  "A7.2": "nav",
+  "A7.3": "features",
+  "A7.4": "nav",
+  // Part B — all map to features
+  "B1.1": "features", "B1.2": "pricing", "B1.3": "features",
+  "B1.4": "features", "B1.5": "cta2",   "B1.6": "features", "B1.7": "features",
+  "B2.1": "features", "B2.2": "pricing", "B2.5": "features", "B2.8": "social",
+  "B3.1": "features", "B3.2": "features", "B3.3": "cta2",
+  "B4.1": "features", "B4.3": "features",
+  "B5.1": "social",   "B5.3": "pricing",
+  "B6.1": "features", "B6.2": "features", "B6.5": "cta2",
+  // Part C — copy/messaging
+  "C1.1": "hero",    "C1.2": "hero",
+  "C2.1": "features", "C2.2": "features",
+  "C3.1": "hero",    "C3.2": "hero",
+  "C4.1": "features", "C4.2": "features",
+  "C5.1": "features", "C5.2": "cta2",
+};
+
 // ─── SAVE TO SUPABASE ───
 async function saveAuditResults(url: string, domain: string, industry: Industry, scores: AuditScores, findings: CheckResult[], domData: Record<string, unknown>): Promise<string | null> {
   if (!supabase) return null;
@@ -596,7 +658,7 @@ async function saveAuditResults(url: string, domain: string, industry: Industry,
     pass: f.pass, score: f.score, finding: f.finding, fix: f.fix,
     category: f.category ?? null,
     part: f.part ?? null,
-    dom_zone: f.domZone ?? "body-copy", glossary_terms: [],
+    dom_zone: DOM_ZONE_MAP[f.id] ?? "body-copy", glossary_terms: [],
   }));
   const { error: findingsError } = await supabase.from("audit_findings").insert(rows);
   if (findingsError) throw new Error(`Failed to save findings: ${findingsError.message}`);

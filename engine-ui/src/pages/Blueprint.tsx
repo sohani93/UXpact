@@ -353,6 +353,14 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
     void load();
   }, [auditId]);
 
+  const domData = auditData?.dom_data ?? auditData?.domData ?? null;
+  const realH1 = domData?.h1Text || auditData?.domain || "yoursite.com";
+  const realNavLinks: string[] = domData?.navLinks ?? [];
+  const realCtaTexts: string[] = domData?.ctaTexts ?? [];
+  const realH2Texts: string[] = domData?.h2Texts ?? [];
+  const realParagraphs: string[] = domData?.paragraphTexts ?? [];
+  const realDomain = auditData?.domain || "yoursite.com";
+
   const displayFindings = findings
     .filter((f) => !f.pass && !f.manual_review)
     .map((f, i) => ({
@@ -456,16 +464,18 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
                 {["#ef4444","#f59e0b","#22c55e"].map(c => <div key={c} style={{ width: 8, height: 8, borderRadius: "50%", background: c, opacity: 0.45 }} />)}
               </div>
               <div style={{ flex: 1, background: "rgba(0,0,0,0.04)", borderRadius: 5, padding: "2px 10px", fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif", textAlign: "center" }}>
-                https://yoursite.com
+                https://{realDomain}
               </div>
             </div>
 
             {/* Site NAV */}
             <FacSection style={{ padding: "13px 28px", background: "rgba(255,255,255,0.35)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 14, fontWeight: 700, color: C.navy }}>YourSite</span>
+                <span style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 14, fontWeight: 700, color: C.navy }}>
+                  {realDomain.split(".")[0].charAt(0).toUpperCase() + realDomain.split(".")[0].slice(1)}
+                </span>
                 <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-                  {["Home","Features","Pricing","Blog"].map(l => (
+                  {(realNavLinks.length > 0 ? realNavLinks.slice(0, 5) : ["Home", "Features", "Pricing", "Blog"]).map((l) => (
                     <span key={l} style={{ fontSize: 12, color: C.muted, fontFamily: "'Space Grotesk', sans-serif" }}>{l}</span>
                   ))}
                   <span style={{ fontSize: 12, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", padding: "4px 14px", border: `1px solid ${C.border}`, borderRadius: 20 }}>Get Started</span>
@@ -477,14 +487,14 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             {/* HERO */}
             <FacSection style={{ textAlign: "center", padding: "44px 48px 36px", background: "linear-gradient(180deg, rgba(209,250,229,0.1) 0%, transparent 100%)" }}>
               <div style={{ fontSize: 27, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded', sans-serif", letterSpacing: "-0.5px", lineHeight: 1.25, marginBottom: 12 }}>
-                Powerful analytics for modern teams
+                {realH1}
               </div>
               <div style={{ fontSize: 13.5, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 22, maxWidth: 420, margin: "0 auto 22px" }}>
-                Track, measure, and optimise your product with real-time data.
+                {realParagraphs[0] ? realParagraphs[0].slice(0, 120) : "Track, measure, and optimise your product with real-time data."}
               </div>
               <div style={{ display: "flex", justifyContent: "center" }}>
                 <div style={{ padding: "9px 26px", background: "linear-gradient(135deg, #186132, #148C59)", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif" }}>
-                  Start Free Trial
+                  {realCtaTexts[0] || "Get Started"}
                 </div>
               </div>
               <PinRow zone="hero" {...pinProps} />
@@ -495,14 +505,17 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
               <FacLabel t="Features" />
               <FacH2>Everything you need to understand your users</FacH2>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 11, marginTop: 14 }}>
-                {[
-                  { t: "Real-time dashboards", b: "We built our dashboards to give you instant visibility across all your key metrics." },
-                  { t: "Custom reports",       b: "Our reporting engine lets your team generate any report you need." },
-                  { t: "Team collaboration",   b: "We designed collaboration features so your whole team stays aligned." },
-                ].map((c, i) => (
+                {(realH2Texts.length >= 3
+                  ? realH2Texts.slice(0, 3).map((t) => ({ t, b: "" }))
+                  : [
+                      { t: "Real-time dashboards", b: "We built our dashboards to give you instant visibility across all your key metrics." },
+                      { t: "Custom reports", b: "Our reporting engine lets your team generate any report you need." },
+                      { t: "Team collaboration", b: "We designed collaboration features so your whole team stays aligned." },
+                    ]
+                ).map((c, i) => (
                   <div key={i} style={{ background: "rgba(255,255,255,0.55)", border: `1px solid ${C.border}`, borderRadius: 9, padding: "13px 14px" }}>
                     <div style={{ fontSize: 12.5, fontWeight: 650, color: C.navy, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 4 }}>{c.t}</div>
-                    <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif" }}>{c.b}</div>
+                    {c.b && <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif" }}>{c.b}</div>}
                   </div>
                 ))}
               </div>
@@ -552,11 +565,11 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
 
             {/* BOTTOM CTA */}
             <FacSection style={{ textAlign: "center", background: "linear-gradient(135deg, rgba(24,97,50,0.04), rgba(91,97,244,0.03))" }}>
-              <FacH2>Ready to get started?</FacH2>
+              <FacH2>{realCtaTexts[1] ? `${realCtaTexts[1]}` : "Ready to get started?"}</FacH2>
               <div style={{ fontSize: 13, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 20 }}>Join thousands of teams already using our platform.</div>
               <div style={{ display: "flex", justifyContent: "center" }}>
                 <div style={{ padding: "9px 26px", background: "linear-gradient(135deg, #186132, #148C59)", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif" }}>
-                  Start Free Trial
+                  {realCtaTexts[0] || "Get Started"}
                 </div>
               </div>
               <PinRow zone="cta2" {...pinProps} />
@@ -565,7 +578,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             {/* FOOTER */}
             <FacSection borderBottom={false} style={{ padding: "14px 28px", background: "rgba(0,0,0,0.02)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>© 2026 YourSite</span>
+                <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>© 2026 {realDomain}</span>
                 <div style={{ display: "flex", gap: 14 }}>
                   {["Privacy","Terms","Contact"].map(l => (
                     <span key={l} style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>{l}</span>
