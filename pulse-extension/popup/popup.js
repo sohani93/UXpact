@@ -26,13 +26,14 @@ document.getElementById('syncBtn').addEventListener('click', async () => {
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const findings = await response.json();
+    const actionableFindings = findings.filter((f) => f.fix !== 'Review manually or commission a UX audit.');
 
-    if (findings.length === 0) {
+    if (actionableFindings.length === 0) {
       statusEl.textContent = 'No findings found for this Audit ID.';
       return;
     }
 
-    const pulseItems = findings.map((f) => ({
+    const pulseItems = actionableFindings.map((f) => ({
       id: f.id,
       finding: f.fix || f.name,
       severity: f.severity,
