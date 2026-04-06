@@ -1,5 +1,5 @@
 const SUPABASE_URL = 'https://oxminualycvnxofoevjs.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94bWludWFseWN2bnhvZm9ldmpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDA0MTYwNDIsImV4cCI6MjA1NTk5MjA0Mn0.hFdmSPMqh5-X2iLiHMt7GiGkNfKTHJIBkp1r5iddWA8';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94bWludWFseWN2bnhvZm9ldmpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzOTA4MjIsImV4cCI6MjA4Nzk2NjgyMn0.TUiErUKO5hUEZay6lM6WpLP87jm7wkEnDWcQVUuVCU8';
 
 const statusEl = document.getElementById('status');
 const auditIdInput = document.getElementById('auditId');
