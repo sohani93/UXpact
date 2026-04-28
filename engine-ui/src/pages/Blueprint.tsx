@@ -86,6 +86,20 @@ const FINDINGS = [
   },
 ];
 
+const ZONE_MAP: Record<string, string> = {
+  nav: "nav", navigation: "nav", header: "nav",
+  hero: "hero", "above-fold": "hero", above_fold: "hero", fold: "hero", cta: "hero",
+  features: "features", feature: "features", benefits: "features",
+  "body-copy": "features", body_copy: "features", content: "features",
+  social: "social", "social-proof": "social", social_proof: "social",
+  testimonials: "social", trust: "social", logos: "social",
+  pricing: "pricing", plans: "pricing",
+  cta2: "cta2", "bottom-cta": "cta2", bottom_cta: "cta2", "cta-2": "cta2", footer: "cta2",
+};
+function normalizeZone(z: string): string {
+  return ZONE_MAP[(z ?? "").toLowerCase().trim()] ?? "features";
+}
+
 // ── Pill ──────────────────────────────────────────────────────────────
 function Pill({ text, v }) {
   const s = v === "green"
@@ -126,7 +140,7 @@ function ScoreChip({ pts, visible }: { pts: number; visible: boolean }) {
 }
 
 // ── Pin ───────────────────────────────────────────────────────────────
-function Pin({ finding, active, onClick }) {
+function Pin({ finding, active, onClick, isRecovered }) {
   const [hov, setHov] = useState(false);
   const s = SEV[finding.sev];
   return (
@@ -137,21 +151,21 @@ function Pin({ finding, active, onClick }) {
         onMouseLeave={() => setHov(false)}
         style={{
           width: 30, height: 30, borderRadius: "50%",
-          background: active ? s.color : s.dot,
+          background: isRecovered ? C.emerald : (active ? s.color : s.dot),
           display: "flex", alignItems: "center", justifyContent: "center",
           cursor: "pointer", flexShrink: 0,
           boxShadow: hov || active ? `0 3px 10px rgba(0,0,0,0.22)` : `0 2px 6px rgba(0,0,0,0.13)`,
-          transition: "all 0.15s",
+          transition: "all 0.2s",
           transform: active ? "scale(1.18)" : hov ? "scale(1.1)" : "none",
           filter: active ? "brightness(0.88)" : "none",
-          opacity: 1,
+          opacity: isRecovered ? 0.6 : 1,
         }}>
         <span style={{
-          fontSize: 11.5, fontWeight: 600,
+          fontSize: isRecovered ? 13 : 11.5, fontWeight: 600,
           color: "#fff",
           fontFamily: "'Space Grotesk', sans-serif",
           lineHeight: 1, userSelect: "none",
-        }}>{finding.id}</span>
+        }}>{isRecovered ? "✓" : finding.id}</span>
       </div>
       {hov && !active && (
         <div style={{
@@ -308,8 +322,8 @@ function FixDrawer({ finding, findingIndex, onClose, recovered, onRecover }) {
 }
 
 // ── Fac helpers ───────────────────────────────────────────────────────
-const FacSection = ({ children, style = {}, borderBottom = true }) => (
-  <div style={{ padding: "26px 32px", borderBottom: borderBottom ? `1px solid ${C.border}` : "none", position: "relative", ...style }}>
+const FacSection = ({ children, style = {}, borderBottom = true, active = false }) => (
+  <div style={{ padding: "26px 32px", borderBottom: borderBottom ? `1px solid ${C.border}` : "none", position: "relative", transition: "box-shadow 0.2s", boxShadow: active ? "inset 3px 0 0 rgba(91,97,244,0.5)" : "none", ...style }}>
     {children}
   </div>
 );
@@ -321,7 +335,7 @@ const FacH2 = ({ children }) => (
 );
 
 // ── PinRow ────────────────────────────────────────────────────────────
-function PinRow({ zone, activeId, setActiveId, findings }) {
+function PinRow({ zone, activeId, setActiveId, findings, isRecovered }) {
   const zf = findings.filter(f => f.zone === zone);
   if (!zf.length) return null;
   return (
@@ -329,6 +343,7 @@ function PinRow({ zone, activeId, setActiveId, findings }) {
       {zf.map(f => (
         <Pin key={f.id} finding={f}
           active={activeId === f.id}
+          isRecovered={isRecovered(f.id)}
           onClick={() => setActiveId(activeId === f.id ? null : f.id)} />
       ))}
     </div>
@@ -426,7 +441,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
     .filter((f) => !f.pass && !f.manual_review)
     .map((f, i) => ({
       id: i + 1,
-      zone: f.dom_zone ?? f.domZone ?? "body-copy",
+      zone: normalizeZone(f.dom_zone ?? f.domZone ?? ""),
       sev: f.severity
         ? f.severity.charAt(0).toUpperCase() + f.severity.slice(1)
         : "Minor",
@@ -449,7 +464,9 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
       return acc + (f ? getSevPts(f.sev) : 0);
     }, 0);
 
-  const pinProps = { activeId, setActiveId, findings: activeFindings };
+  const activeZone = activeFinding?.zone ?? null;
+  const isRecoveredFn = (id: number | string) => recovered[String(id)] ?? false;
+  const pinProps = { activeId, setActiveId, findings: activeFindings, isRecovered: isRecoveredFn };
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden" }}>
@@ -554,7 +571,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             </div>
 
             {/* Site NAV */}
-            <FacSection style={{ padding: "13px 28px", background: "rgba(255,255,255,0.35)" }}>
+            <FacSection active={activeZone === "nav"} style={{ padding: "13px 28px", background: "rgba(255,255,255,0.35)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 14, fontWeight: 700, color: C.navy }}>
                   {realDomain.split(".")[0].charAt(0).toUpperCase() + realDomain.split(".")[0].slice(1)}
@@ -570,7 +587,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             </FacSection>
 
             {/* HERO */}
-            <FacSection style={{ textAlign: "center", padding: "44px 48px 36px", background: "linear-gradient(180deg, rgba(209,250,229,0.1) 0%, transparent 100%)" }}>
+            <FacSection active={activeZone === "hero"} style={{ textAlign: "center", padding: "44px 48px 36px", background: "linear-gradient(180deg, rgba(209,250,229,0.1) 0%, transparent 100%)" }}>
               <div style={{ fontSize: 27, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded', sans-serif", letterSpacing: "-0.5px", lineHeight: 1.25, marginBottom: 12 }}>
                 {realH1}
               </div>
@@ -586,7 +603,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             </FacSection>
 
             {/* FEATURES */}
-            <FacSection>
+            <FacSection active={activeZone === "features"}>
               <FacLabel t="Features" />
               <FacH2>Everything you need to understand your users</FacH2>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 11, marginTop: 14 }}>
@@ -608,7 +625,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             </FacSection>
 
             {/* SOCIAL PROOF */}
-            <FacSection style={{ background: "rgba(224,231,255,0.07)" }}>
+            <FacSection active={activeZone === "social"} style={{ background: "rgba(224,231,255,0.07)" }}>
               <FacLabel t="Customers" />
               <FacH2>Trusted by teams at leading companies</FacH2>
               <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 14 }}>
@@ -623,7 +640,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             </FacSection>
 
             {/* PRICING */}
-            <FacSection>
+            <FacSection active={activeZone === "pricing"}>
               <FacLabel t="Pricing" />
               <FacH2>Simple, transparent pricing</FacH2>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginTop: 14 }}>
@@ -649,7 +666,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             </FacSection>
 
             {/* BOTTOM CTA */}
-            <FacSection style={{ textAlign: "center", background: "linear-gradient(135deg, rgba(24,97,50,0.04), rgba(91,97,244,0.03))" }}>
+            <FacSection active={activeZone === "cta2"} style={{ textAlign: "center", background: "linear-gradient(135deg, rgba(24,97,50,0.04), rgba(91,97,244,0.03))" }}>
               <FacH2>{realCtaTexts[1] ? `${realCtaTexts[1]}` : "Ready to get started?"}</FacH2>
               <div style={{ fontSize: 13, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 20 }}>Join thousands of teams already using our platform.</div>
               <div style={{ display: "flex", justifyContent: "center" }}>
@@ -674,17 +691,45 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
           </div>
 
           {/* ── Fix Drawer (sticky) ───────────────────────────────── */}
-          {activeFinding && (
-            <div style={{ position: "sticky", top: 20 }}>
+          <div style={{ position: "sticky", top: 20, width: 340, flexShrink: 0 }}>
+            {activeFinding ? (
               <FixDrawer
                 finding={activeFinding}
                 findingIndex={activeFindingIndex}
                 onClose={() => setActiveId(null)}
                 recovered={recovered[String(activeFinding.id)] ?? false}
-                onRecover={() => setRecovered(r => ({ ...r, [String(activeFinding.id)]: !(r[String(activeFinding.id)]) }))}
+                onRecover={() => setRecovered(r => ({ ...r, [String(activeFinding.id)]: !r[String(activeFinding.id)] }))}
               />
-            </div>
-          )}
+            ) : (
+              <div style={{
+                background: "rgba(255,255,255,0.4)",
+                backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+                borderRadius: 14, border: "1px solid rgba(255,255,255,0.65)",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
+                padding: "36px 24px", textAlign: "center",
+              }}>
+                <div style={{ fontSize: 28, marginBottom: 14 }}>📍</div>
+                <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 13, fontWeight: 700, color: C.navy, letterSpacing: "-0.2px", marginBottom: 8 }}>
+                  Click a pin
+                </div>
+                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 20 }}>
+                  Each numbered dot maps a conversion issue to the section where it occurs.
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                  {[
+                    { dot: "#EF4444", label: "Critical — fix immediately" },
+                    { dot: "#F59E0B", label: "Major — high impact" },
+                    { dot: "#EAB308", label: "Minor — quick win" },
+                  ].map(({ dot, label }) => (
+                    <div key={label} style={{ display: "flex", alignItems: "center", gap: 9, textAlign: "left" }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: dot, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11.5, color: C.muted, fontFamily: "'Space Grotesk', sans-serif" }}>{label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Audit ID — centered directly below facsimile, no gap */}
