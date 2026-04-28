@@ -351,7 +351,7 @@ function PinRow({ zone, activeId, setActiveId, findings, isRecovered }) {
 }
 
 // ── Pulse Footer ──────────────────────────────────────────────────────
-function PulseFooter() {
+function PulseFooter({ totalRecovered = 0 }: { totalRecovered?: number }) {
   const [hov, setHov] = useState(false);
   return (
     <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 28px 48px", display: "flex", justifyContent: "center" }}>
@@ -364,10 +364,10 @@ function PulseFooter() {
       }}>
         <div>
           <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 15, fontWeight: 700, color: "#fff", letterSpacing: "-0.2px", marginBottom: 4 }}>
-            Ready to fix?
+            {totalRecovered > 0 ? `${totalRecovered} pts recovered.` : "Ready to fix?"}
           </div>
           <div style={{ fontSize: 12, color: "rgba(255,255,255,0.72)", fontFamily: "'Space Grotesk', sans-serif" }}>
-            Pulse tracks every step.
+            {totalRecovered > 0 ? "Track every remaining fix with Pulse." : "Pulse tracks every step."}
           </div>
         </div>
         <button
@@ -732,13 +732,20 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
           </div>
         </div>
 
-        {/* Audit ID — centered directly below facsimile, no gap */}
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "8px 28px 24px", textAlign: "center" }}>
-          <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.06em" }}>Audit #{auditId}</span>
+        {/* Audit ID — centered directly below facsimile */}
+        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "10px 28px 28px", textAlign: "center" }}>
+          <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.06em" }}>
+            {realDomain}
+            {" · "}
+            Audit #{auditId}
+            {(auditData?.created_at ?? auditData?.createdAt) && (
+              <> · {new Date(auditData.created_at ?? auditData.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</>
+            )}
+          </span>
         </div>
 
-        {/* ── Pulse footer — lean green gradient pill ───────────── */}
-        <PulseFooter />
+        {/* ── Pulse footer ──────────────────────────────────────── */}
+        <PulseFooter totalRecovered={totalRecovered} />
       </div>
     </div>
   );
