@@ -174,10 +174,11 @@ function Pin({ finding, active, onClick }) {
 }
 
 // ── Fix Drawer ────────────────────────────────────────────────────────
-function FixDrawer({ finding, findingIndex, onClose }) {
+function FixDrawer({ finding, findingIndex, onClose, recovered, onRecover }) {
   const [copied, setCopied] = useState(false);
   const sev = SEV[finding.sev];
   const fixBg = FIX_TAB_BG[findingIndex % FIX_TAB_BG.length];
+  const pts = getSevPts(finding.sev);
 
   const copy = () => {
     navigator.clipboard.writeText(finding.prompt);
@@ -203,13 +204,16 @@ function FixDrawer({ finding, findingIndex, onClose }) {
       <div style={{ padding: "16px 16px 12px", borderBottom: `1px solid ${fixBg.border}` }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
           <div>
-            <div style={{
-              display: "inline-block", fontSize: 9, fontWeight: 600,
-              letterSpacing: "0.08em", textTransform: "uppercase",
-              color: sev.color, background: "rgba(255,255,255,0.7)",
-              padding: "2px 8px", borderRadius: 10, marginBottom: 6,
-              fontFamily: "'Space Grotesk', sans-serif",
-            }}>{finding.sev}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <div style={{
+                display: "inline-block", fontSize: 9, fontWeight: 600,
+                letterSpacing: "0.08em", textTransform: "uppercase",
+                color: sev.color, background: "rgba(255,255,255,0.7)",
+                padding: "2px 8px", borderRadius: 10,
+                fontFamily: "'Space Grotesk', sans-serif",
+              }}>{finding.sev}</div>
+              <ScoreChip pts={pts} visible={recovered} />
+            </div>
             <div style={{
               fontSize: 13, fontWeight: 650, color: C.navy, lineHeight: 1.35,
               fontFamily: "'Unbounded', sans-serif", letterSpacing: "-0.2px",
@@ -279,12 +283,25 @@ function FixDrawer({ finding, findingIndex, onClose }) {
         </div>
       </div>
 
-      <div style={{ padding: "10px 16px", borderTop: `1px solid ${fixBg.border}` }}>
+      <div style={{ padding: "10px 16px", borderTop: `1px solid ${fixBg.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <button onClick={onClose} style={{
           background: "none", border: "none", cursor: "pointer",
           fontSize: 12, color: C.muted, fontFamily: "'Space Grotesk', sans-serif",
           display: "flex", alignItems: "center", gap: 4,
         }}>← Back to page</button>
+        <button onClick={onRecover} style={{
+          padding: "7px 14px", borderRadius: 8, cursor: "pointer",
+          fontSize: 11, fontWeight: 700,
+          background: recovered
+            ? "linear-gradient(135deg, #186132, #14D571)"
+            : "rgba(91,97,244,0.08)",
+          border: recovered ? "none" : "1px solid rgba(91,97,244,0.3)",
+          color: recovered ? "#fff" : C.violet,
+          fontFamily: "'Space Grotesk', sans-serif",
+          transition: "all 0.2s",
+        }}>
+          {recovered ? "✓ Fixed" : "Mark as fixed"}
+        </button>
       </div>
     </div>
   );
@@ -365,6 +382,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
   const [activeId, setActiveId] = useState(null);
   const [auditData, setAuditData] = useState<any>(null);
   const [findings, setFindings] = useState<any[]>([]);
+  const [recovered, setRecovered] = useState<Record<string, boolean>>({});
   useEffect(() => {
     const load = async () => {
       const cached = sessionStorage.getItem(`audit:${auditId}`);
@@ -424,6 +442,13 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
   const activeFinding = activeFindings.find(f => f.id === activeId) || null;
   const activeFindingIndex = activeFinding ? activeFindings.indexOf(activeFinding) : 0;
 
+  const totalRecovered = Object.entries(recovered)
+    .filter(([, v]) => v)
+    .reduce((acc, [k]) => {
+      const f = activeFindings.find(f => String(f.id) === k);
+      return acc + (f ? getSevPts(f.sev) : 0);
+    }, 0);
+
   const pinProps = { activeId, setActiveId, findings: activeFindings };
 
   return (
@@ -452,12 +477,27 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
 
         {/* ── Page header ──────────────────────────────────────────── */}
         <div style={{ maxWidth: 1120, margin: "0 auto", padding: "4px 28px 20px" }}>
-          <h1 style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 26, fontWeight: 700, color: C.navy, letterSpacing: "-0.5px", margin: "0 0 6px" }}>
-            Your{" "}
-            <span style={{ background: "linear-gradient(90deg, #186132, #14D571)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-              Conversion Blueprint
-            </span>
-          </h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 6 }}>
+            <h1 style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 26, fontWeight: 700, color: C.navy, letterSpacing: "-0.5px", margin: 0 }}>
+              Your{" "}
+              <span style={{ background: "linear-gradient(90deg, #186132, #14D571)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+                Conversion Blueprint
+              </span>
+            </h1>
+            {totalRecovered > 0 && (
+              <div style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                padding: "4px 12px", borderRadius: 20,
+                background: "linear-gradient(135deg,rgba(91,97,244,0.15),rgba(20,213,113,0.1))",
+                border: "1px solid rgba(91,97,244,0.3)",
+                fontSize: 12, fontWeight: 700, color: C.violet,
+                fontFamily: "'Space Grotesk', sans-serif",
+                animation: "chipPop 0.35s ease",
+              }}>
+                +{totalRecovered} pts recovered ✦
+              </div>
+            )}
+          </div>
           <p style={{ fontSize: 14, color: C.muted, margin: 0, fontWeight: 400 }}>
             Every finding mapped to your page — with fixes and AI prompts ready to copy.
           </p>
@@ -640,6 +680,8 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
                 finding={activeFinding}
                 findingIndex={activeFindingIndex}
                 onClose={() => setActiveId(null)}
+                recovered={recovered[String(activeFinding.id)] ?? false}
+                onRecover={() => setRecovered(r => ({ ...r, [String(activeFinding.id)]: !(r[String(activeFinding.id)]) }))}
               />
             </div>
           )}
