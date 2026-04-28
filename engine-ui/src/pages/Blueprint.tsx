@@ -8,10 +8,21 @@ const C = {
   emerald: "#148C59",
   mint: "#14D571",
   violet: "#5B61F4",
+  red: "#DC2626",
   muted: "#6B7280",
   dim: "#9CA3AF",
   border: "rgba(0,0,0,0.07)",
 };
+
+const SEV_PTS: Record<string, number> = { critical: 10, major: 5, minor: 2 };
+function getSevPts(sev: string): number {
+  return SEV_PTS[sev.toLowerCase()] ?? 2;
+}
+
+const CHIP_KEYFRAMES = `
+@keyframes chipPop{0%{transform:scale(0.8)}60%{transform:scale(1.12)}100%{transform:scale(1.05)}}
+@keyframes countUp{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+`;
 
 const SEV = {
   Critical: { color: "#DC2626", bg: "#FEE2E2", dot: "#EF4444" },
@@ -84,6 +95,33 @@ function Pill({ text, v }) {
     <div style={{ ...s, padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", whiteSpace: "nowrap" }}>
       {text}
     </div>
+  );
+}
+
+// ── ScoreChip ─────────────────────────────────────────────────────────
+function ScoreChip({ pts, visible }: { pts: number; visible: boolean }) {
+  return (
+    <>
+      <style>{CHIP_KEYFRAMES}</style>
+      <div style={{
+        display: "inline-flex", alignItems: "center", gap: 4,
+        padding: "3px 10px", borderRadius: 20,
+        background: visible
+          ? "linear-gradient(135deg,rgba(91,97,244,0.15),rgba(20,213,113,0.1))"
+          : "linear-gradient(135deg,rgba(220,38,38,0.08),rgba(220,38,38,0.04))",
+        border: `1px solid ${visible ? "rgba(91,97,244,0.3)" : "rgba(220,38,38,0.15)"}`,
+        fontSize: 11, fontWeight: 700,
+        color: visible ? C.violet : C.red,
+        transition: "all 0.4s cubic-bezier(0.34,1.56,0.64,1)",
+        transform: visible ? "scale(1.05)" : "scale(1)",
+        animation: visible ? "chipPop 0.35s ease" : "none",
+        fontFamily: "'Space Grotesk', sans-serif",
+      }}>
+        {visible
+          ? <span style={{ animation: "countUp 0.4s ease both" }}>+{pts} pts recovered ✦</span>
+          : <span>−{pts} pts</span>}
+      </div>
+    </>
   );
 }
 
