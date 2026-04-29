@@ -33,6 +33,7 @@ export default function NodeMap({ burst = false }: { burst?: boolean }) {
     }
     const { n, cn } = ns.current;
     function draw() {
+      if (!ctx) return;
       const t = (Date.now() - t0.current) / 1000;
       ctx.clearRect(0, 0, W, H);
       const wR = burst ? 999 : ((t * 40) % 210);
