@@ -8,10 +8,21 @@ const C = {
   emerald: "#148C59",
   mint: "#14D571",
   violet: "#5B61F4",
+  red: "#DC2626",
   muted: "#6B7280",
   dim: "#9CA3AF",
   border: "rgba(0,0,0,0.07)",
 };
+
+const SEV_PTS: Record<string, number> = { critical: 10, major: 5, minor: 2 };
+function getSevPts(sev: string): number {
+  return SEV_PTS[sev.toLowerCase()] ?? 2;
+}
+
+const CHIP_KEYFRAMES = `
+@keyframes chipPop{0%{transform:scale(0.8)}60%{transform:scale(1.12)}100%{transform:scale(1.05)}}
+@keyframes countUp{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+`;
 
 const SEV = {
   Critical: { color: "#DC2626", bg: "#FEE2E2", dot: "#EF4444" },
@@ -75,6 +86,20 @@ const FINDINGS = [
   },
 ];
 
+const ZONE_MAP: Record<string, string> = {
+  nav: "nav", navigation: "nav", header: "nav",
+  hero: "hero", "above-fold": "hero", above_fold: "hero", fold: "hero", cta: "hero",
+  features: "features", feature: "features", benefits: "features",
+  "body-copy": "features", body_copy: "features", content: "features",
+  social: "social", "social-proof": "social", social_proof: "social",
+  testimonials: "social", trust: "social", logos: "social",
+  pricing: "pricing", plans: "pricing",
+  cta2: "cta2", "bottom-cta": "cta2", bottom_cta: "cta2", "cta-2": "cta2", footer: "cta2",
+};
+function normalizeZone(z: string): string {
+  return ZONE_MAP[(z ?? "").toLowerCase().trim()] ?? "features";
+}
+
 // ── Pill ──────────────────────────────────────────────────────────────
 function Pill({ text, v }) {
   const s = v === "green"
@@ -87,8 +112,35 @@ function Pill({ text, v }) {
   );
 }
 
+// ── ScoreChip ─────────────────────────────────────────────────────────
+function ScoreChip({ pts, visible }: { pts: number; visible: boolean }) {
+  return (
+    <>
+      <style>{CHIP_KEYFRAMES}</style>
+      <div style={{
+        display: "inline-flex", alignItems: "center", gap: 4,
+        padding: "3px 10px", borderRadius: 20,
+        background: visible
+          ? "linear-gradient(135deg,rgba(91,97,244,0.15),rgba(20,213,113,0.1))"
+          : "linear-gradient(135deg,rgba(220,38,38,0.08),rgba(220,38,38,0.04))",
+        border: `1px solid ${visible ? "rgba(91,97,244,0.3)" : "rgba(220,38,38,0.15)"}`,
+        fontSize: 11, fontWeight: 700,
+        color: visible ? C.violet : C.red,
+        transition: "all 0.4s cubic-bezier(0.34,1.56,0.64,1)",
+        transform: visible ? "scale(1.05)" : "scale(1)",
+        animation: visible ? "chipPop 0.35s ease" : "none",
+        fontFamily: "'Space Grotesk', sans-serif",
+      }}>
+        {visible
+          ? <span style={{ animation: "countUp 0.4s ease both" }}>+{pts} pts recovered ✦</span>
+          : <span>−{pts} pts</span>}
+      </div>
+    </>
+  );
+}
+
 // ── Pin ───────────────────────────────────────────────────────────────
-function Pin({ finding, active, onClick }) {
+function Pin({ finding, active, onClick, isRecovered }) {
   const [hov, setHov] = useState(false);
   const s = SEV[finding.sev];
   return (
@@ -99,21 +151,21 @@ function Pin({ finding, active, onClick }) {
         onMouseLeave={() => setHov(false)}
         style={{
           width: 30, height: 30, borderRadius: "50%",
-          background: active ? s.color : s.dot,
+          background: isRecovered ? C.emerald : (active ? s.color : s.dot),
           display: "flex", alignItems: "center", justifyContent: "center",
           cursor: "pointer", flexShrink: 0,
           boxShadow: hov || active ? `0 3px 10px rgba(0,0,0,0.22)` : `0 2px 6px rgba(0,0,0,0.13)`,
-          transition: "all 0.15s",
+          transition: "all 0.2s",
           transform: active ? "scale(1.18)" : hov ? "scale(1.1)" : "none",
           filter: active ? "brightness(0.88)" : "none",
-          opacity: 1,
+          opacity: isRecovered ? 0.6 : 1,
         }}>
         <span style={{
-          fontSize: 11.5, fontWeight: 600,
+          fontSize: isRecovered ? 13 : 11.5, fontWeight: 600,
           color: "#fff",
           fontFamily: "'Space Grotesk', sans-serif",
           lineHeight: 1, userSelect: "none",
-        }}>{finding.id}</span>
+        }}>{isRecovered ? "✓" : finding.id}</span>
       </div>
       {hov && !active && (
         <div style={{
@@ -136,10 +188,11 @@ function Pin({ finding, active, onClick }) {
 }
 
 // ── Fix Drawer ────────────────────────────────────────────────────────
-function FixDrawer({ finding, findingIndex, onClose }) {
+function FixDrawer({ finding, findingIndex, onClose, recovered, onRecover }) {
   const [copied, setCopied] = useState(false);
   const sev = SEV[finding.sev];
   const fixBg = FIX_TAB_BG[findingIndex % FIX_TAB_BG.length];
+  const pts = getSevPts(finding.sev);
 
   const copy = () => {
     navigator.clipboard.writeText(finding.prompt);
@@ -165,13 +218,16 @@ function FixDrawer({ finding, findingIndex, onClose }) {
       <div style={{ padding: "16px 16px 12px", borderBottom: `1px solid ${fixBg.border}` }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
           <div>
-            <div style={{
-              display: "inline-block", fontSize: 9, fontWeight: 600,
-              letterSpacing: "0.08em", textTransform: "uppercase",
-              color: sev.color, background: "rgba(255,255,255,0.7)",
-              padding: "2px 8px", borderRadius: 10, marginBottom: 6,
-              fontFamily: "'Space Grotesk', sans-serif",
-            }}>{finding.sev}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <div style={{
+                display: "inline-block", fontSize: 9, fontWeight: 600,
+                letterSpacing: "0.08em", textTransform: "uppercase",
+                color: sev.color, background: "rgba(255,255,255,0.7)",
+                padding: "2px 8px", borderRadius: 10,
+                fontFamily: "'Space Grotesk', sans-serif",
+              }}>{finding.sev}</div>
+              <ScoreChip pts={pts} visible={recovered} />
+            </div>
             <div style={{
               fontSize: 13, fontWeight: 650, color: C.navy, lineHeight: 1.35,
               fontFamily: "'Unbounded', sans-serif", letterSpacing: "-0.2px",
@@ -241,20 +297,33 @@ function FixDrawer({ finding, findingIndex, onClose }) {
         </div>
       </div>
 
-      <div style={{ padding: "10px 16px", borderTop: `1px solid ${fixBg.border}` }}>
+      <div style={{ padding: "10px 16px", borderTop: `1px solid ${fixBg.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <button onClick={onClose} style={{
           background: "none", border: "none", cursor: "pointer",
           fontSize: 12, color: C.muted, fontFamily: "'Space Grotesk', sans-serif",
           display: "flex", alignItems: "center", gap: 4,
         }}>← Back to page</button>
+        <button onClick={onRecover} style={{
+          padding: "7px 14px", borderRadius: 8, cursor: "pointer",
+          fontSize: 11, fontWeight: 700,
+          background: recovered
+            ? "linear-gradient(135deg, #186132, #14D571)"
+            : "rgba(91,97,244,0.08)",
+          border: recovered ? "none" : "1px solid rgba(91,97,244,0.3)",
+          color: recovered ? "#fff" : C.violet,
+          fontFamily: "'Space Grotesk', sans-serif",
+          transition: "all 0.2s",
+        }}>
+          {recovered ? "✓ Fixed" : "Mark as fixed"}
+        </button>
       </div>
     </div>
   );
 }
 
 // ── Fac helpers ───────────────────────────────────────────────────────
-const FacSection = ({ children, style = {}, borderBottom = true }) => (
-  <div style={{ padding: "26px 32px", borderBottom: borderBottom ? `1px solid ${C.border}` : "none", position: "relative", ...style }}>
+const FacSection = ({ children, style = {}, borderBottom = true, active = false }) => (
+  <div style={{ padding: "26px 32px", borderBottom: borderBottom ? `1px solid ${C.border}` : "none", position: "relative", transition: "box-shadow 0.2s", boxShadow: active ? "inset 3px 0 0 rgba(91,97,244,0.5)" : "none", ...style }}>
     {children}
   </div>
 );
@@ -266,7 +335,7 @@ const FacH2 = ({ children }) => (
 );
 
 // ── PinRow ────────────────────────────────────────────────────────────
-function PinRow({ zone, activeId, setActiveId, findings }) {
+function PinRow({ zone, activeId, setActiveId, findings, isRecovered }) {
   const zf = findings.filter(f => f.zone === zone);
   if (!zf.length) return null;
   return (
@@ -274,6 +343,7 @@ function PinRow({ zone, activeId, setActiveId, findings }) {
       {zf.map(f => (
         <Pin key={f.id} finding={f}
           active={activeId === f.id}
+          isRecovered={isRecovered(f.id)}
           onClick={() => setActiveId(activeId === f.id ? null : f.id)} />
       ))}
     </div>
@@ -281,7 +351,7 @@ function PinRow({ zone, activeId, setActiveId, findings }) {
 }
 
 // ── Pulse Footer ──────────────────────────────────────────────────────
-function PulseFooter() {
+function PulseFooter({ totalRecovered = 0 }: { totalRecovered?: number }) {
   const [hov, setHov] = useState(false);
   return (
     <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 28px 48px", display: "flex", justifyContent: "center" }}>
@@ -294,10 +364,10 @@ function PulseFooter() {
       }}>
         <div>
           <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 15, fontWeight: 700, color: "#fff", letterSpacing: "-0.2px", marginBottom: 4 }}>
-            Ready to fix?
+            {totalRecovered > 0 ? `${totalRecovered} pts recovered.` : "Ready to fix?"}
           </div>
           <div style={{ fontSize: 12, color: "rgba(255,255,255,0.72)", fontFamily: "'Space Grotesk', sans-serif" }}>
-            Pulse tracks every step.
+            {totalRecovered > 0 ? "Track every remaining fix with Pulse." : "Pulse tracks every step."}
           </div>
         </div>
         <button
@@ -327,6 +397,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
   const [activeId, setActiveId] = useState(null);
   const [auditData, setAuditData] = useState<any>(null);
   const [findings, setFindings] = useState<any[]>([]);
+  const [recovered, setRecovered] = useState<Record<string, boolean>>({});
   useEffect(() => {
     const load = async () => {
       const cached = sessionStorage.getItem(`audit:${auditId}`);
@@ -370,7 +441,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
     .filter((f) => !f.pass && !f.manual_review)
     .map((f, i) => ({
       id: i + 1,
-      zone: f.dom_zone ?? f.domZone ?? "body-copy",
+      zone: normalizeZone(f.dom_zone ?? f.domZone ?? ""),
       sev: f.severity
         ? f.severity.charAt(0).toUpperCase() + f.severity.slice(1)
         : "Minor",
@@ -386,7 +457,16 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
   const activeFinding = activeFindings.find(f => f.id === activeId) || null;
   const activeFindingIndex = activeFinding ? activeFindings.indexOf(activeFinding) : 0;
 
-  const pinProps = { activeId, setActiveId, findings: activeFindings };
+  const totalRecovered = Object.entries(recovered)
+    .filter(([, v]) => v)
+    .reduce((acc, [k]) => {
+      const f = activeFindings.find(f => String(f.id) === k);
+      return acc + (f ? getSevPts(f.sev) : 0);
+    }, 0);
+
+  const activeZone = activeFinding?.zone ?? null;
+  const isRecoveredFn = (id: number | string) => recovered[String(id)] ?? false;
+  const pinProps = { activeId, setActiveId, findings: activeFindings, isRecovered: isRecoveredFn };
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden" }}>
@@ -414,12 +494,27 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
 
         {/* ── Page header ──────────────────────────────────────────── */}
         <div style={{ maxWidth: 1120, margin: "0 auto", padding: "4px 28px 20px" }}>
-          <h1 style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 26, fontWeight: 700, color: C.navy, letterSpacing: "-0.5px", margin: "0 0 6px" }}>
-            Your{" "}
-            <span style={{ background: "linear-gradient(90deg, #186132, #14D571)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-              Conversion Blueprint
-            </span>
-          </h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 6 }}>
+            <h1 style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 26, fontWeight: 700, color: C.navy, letterSpacing: "-0.5px", margin: 0 }}>
+              Your{" "}
+              <span style={{ background: "linear-gradient(90deg, #186132, #14D571)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+                Conversion Blueprint
+              </span>
+            </h1>
+            {totalRecovered > 0 && (
+              <div style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                padding: "4px 12px", borderRadius: 20,
+                background: "linear-gradient(135deg,rgba(91,97,244,0.15),rgba(20,213,113,0.1))",
+                border: "1px solid rgba(91,97,244,0.3)",
+                fontSize: 12, fontWeight: 700, color: C.violet,
+                fontFamily: "'Space Grotesk', sans-serif",
+                animation: "chipPop 0.35s ease",
+              }}>
+                +{totalRecovered} pts recovered ✦
+              </div>
+            )}
+          </div>
           <p style={{ fontSize: 14, color: C.muted, margin: 0, fontWeight: 400 }}>
             Every finding mapped to your page — with fixes and AI prompts ready to copy.
           </p>
@@ -476,7 +571,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             </div>
 
             {/* Site NAV */}
-            <FacSection style={{ padding: "13px 28px", background: "rgba(255,255,255,0.35)" }}>
+            <FacSection active={activeZone === "nav"} style={{ padding: "13px 28px", background: "rgba(255,255,255,0.35)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 14, fontWeight: 700, color: C.navy }}>
                   {realDomain.split(".")[0].charAt(0).toUpperCase() + realDomain.split(".")[0].slice(1)}
@@ -492,7 +587,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             </FacSection>
 
             {/* HERO */}
-            <FacSection style={{ textAlign: "center", padding: "44px 48px 36px", background: "linear-gradient(180deg, rgba(209,250,229,0.1) 0%, transparent 100%)" }}>
+            <FacSection active={activeZone === "hero"} style={{ textAlign: "center", padding: "44px 48px 36px", background: "linear-gradient(180deg, rgba(209,250,229,0.1) 0%, transparent 100%)" }}>
               <div style={{ fontSize: 27, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded', sans-serif", letterSpacing: "-0.5px", lineHeight: 1.25, marginBottom: 12 }}>
                 {realH1}
               </div>
@@ -508,7 +603,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             </FacSection>
 
             {/* FEATURES */}
-            <FacSection>
+            <FacSection active={activeZone === "features"}>
               <FacLabel t="Features" />
               <FacH2>Everything you need to understand your users</FacH2>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 11, marginTop: 14 }}>
@@ -530,7 +625,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             </FacSection>
 
             {/* SOCIAL PROOF */}
-            <FacSection style={{ background: "rgba(224,231,255,0.07)" }}>
+            <FacSection active={activeZone === "social"} style={{ background: "rgba(224,231,255,0.07)" }}>
               <FacLabel t="Customers" />
               <FacH2>Trusted by teams at leading companies</FacH2>
               <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 14 }}>
@@ -545,7 +640,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             </FacSection>
 
             {/* PRICING */}
-            <FacSection>
+            <FacSection active={activeZone === "pricing"}>
               <FacLabel t="Pricing" />
               <FacH2>Simple, transparent pricing</FacH2>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginTop: 14 }}>
@@ -571,7 +666,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             </FacSection>
 
             {/* BOTTOM CTA */}
-            <FacSection style={{ textAlign: "center", background: "linear-gradient(135deg, rgba(24,97,50,0.04), rgba(91,97,244,0.03))" }}>
+            <FacSection active={activeZone === "cta2"} style={{ textAlign: "center", background: "linear-gradient(135deg, rgba(24,97,50,0.04), rgba(91,97,244,0.03))" }}>
               <FacH2>{realCtaTexts[1] ? `${realCtaTexts[1]}` : "Ready to get started?"}</FacH2>
               <div style={{ fontSize: 13, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 20 }}>Join thousands of teams already using our platform.</div>
               <div style={{ display: "flex", justifyContent: "center" }}>
@@ -596,24 +691,61 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
           </div>
 
           {/* ── Fix Drawer (sticky) ───────────────────────────────── */}
-          {activeFinding && (
-            <div style={{ position: "sticky", top: 20 }}>
+          <div style={{ position: "sticky", top: 20, width: 340, flexShrink: 0 }}>
+            {activeFinding ? (
               <FixDrawer
                 finding={activeFinding}
                 findingIndex={activeFindingIndex}
                 onClose={() => setActiveId(null)}
+                recovered={recovered[String(activeFinding.id)] ?? false}
+                onRecover={() => setRecovered(r => ({ ...r, [String(activeFinding.id)]: !r[String(activeFinding.id)] }))}
               />
-            </div>
-          )}
+            ) : (
+              <div style={{
+                background: "rgba(255,255,255,0.4)",
+                backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+                borderRadius: 14, border: "1px solid rgba(255,255,255,0.65)",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
+                padding: "36px 24px", textAlign: "center",
+              }}>
+                <div style={{ fontSize: 28, marginBottom: 14 }}>📍</div>
+                <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 13, fontWeight: 700, color: C.navy, letterSpacing: "-0.2px", marginBottom: 8 }}>
+                  Click a pin
+                </div>
+                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 20 }}>
+                  Each numbered dot maps a conversion issue to the section where it occurs.
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                  {[
+                    { dot: "#EF4444", label: "Critical — fix immediately" },
+                    { dot: "#F59E0B", label: "Major — high impact" },
+                    { dot: "#EAB308", label: "Minor — quick win" },
+                  ].map(({ dot, label }) => (
+                    <div key={label} style={{ display: "flex", alignItems: "center", gap: 9, textAlign: "left" }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: dot, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11.5, color: C.muted, fontFamily: "'Space Grotesk', sans-serif" }}>{label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Audit ID — centered directly below facsimile, no gap */}
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "8px 28px 24px", textAlign: "center" }}>
-          <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.06em" }}>Audit #{auditId}</span>
+        {/* Audit ID — centered directly below facsimile */}
+        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "10px 28px 28px", textAlign: "center" }}>
+          <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.06em" }}>
+            {realDomain}
+            {" · "}
+            Audit #{auditId}
+            {(auditData?.created_at ?? auditData?.createdAt) && (
+              <> · {new Date(auditData.created_at ?? auditData.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</>
+            )}
+          </span>
         </div>
 
-        {/* ── Pulse footer — lean green gradient pill ───────────── */}
-        <PulseFooter />
+        {/* ── Pulse footer ──────────────────────────────────────── */}
+        <PulseFooter totalRecovered={totalRecovered} />
       </div>
     </div>
   );
