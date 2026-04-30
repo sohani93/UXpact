@@ -6,10 +6,8 @@ import Blobs from "../components/Blobs";
 import ArcGauge from "../components/ArcGauge";
 
 // ── Supabase client ────────────────────────────────────────────────────
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY,
-);
+// Created lazily inside useAuditData — calling createClient at module level
+// crashes the bundle when VITE_SUPABASE_URL is undefined (e.g. Cloudflare Pages).
 
 // ── Design tokens ──────────────────────────────────────────────────────
 const C = {
@@ -140,10 +138,15 @@ function useAuditData(auditId: string) {
         } catch {}
       }
 
-      // Always fetch fresh from Supabase
+      // Fetch fresh from Supabase — skip gracefully if env vars are absent
+      const sbUrl = import.meta.env.VITE_SUPABASE_URL;
+      const sbKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      if (!sbUrl || !sbKey) { setLoading(false); return; }
+      const client = createClient(sbUrl, sbKey);
+
       const [{ data: auditData, error: auditErr }, { data: findingsData, error: findingsErr }] = await Promise.all([
-        supabase.from("audits").select("*").eq("id", auditId).maybeSingle(),
-        supabase.from("audit_findings").select("*").eq("audit_id", auditId),
+        client.from("audits").select("*").eq("id", auditId).maybeSingle(),
+        client.from("audit_findings").select("*").eq("audit_id", auditId),
       ]);
 
       if (auditErr || findingsErr) {
