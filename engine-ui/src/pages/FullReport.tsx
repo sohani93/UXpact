@@ -191,13 +191,7 @@ function FindingCard({ f, state, onState, active, onOpen }) {
       {active && (
         <div style={{ padding: "0 18px 16px", animation: "fadeUp 0.2s ease both" }}>
           <div style={{ height: 1, background: "rgba(0,0,0,0.05)", marginBottom: 12 }} />
-          <p style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6, margin: "0 0 10px" }}>{f.finding}</p>
-          {f.fix && (
-            <div style={{ background: "rgba(20,140,89,0.05)", border: "1px solid rgba(20,140,89,0.1)", borderRadius: 8, padding: "10px 12px" }}>
-              <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.emerald, marginBottom: 5 }}>Recommended fix</div>
-              <div style={{ fontSize: 12, color: C.navy, lineHeight: 1.6 }}>{f.fix}</div>
-            </div>
-          )}
+          <p style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6, margin: 0 }}>{f.finding}</p>
         </div>
       )}
     </div>
