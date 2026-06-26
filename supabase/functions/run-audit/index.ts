@@ -1408,13 +1408,30 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const scores = calculateScores(findings);
     const topFindings = getTopFindings(findings, 5);
 
+    // Extract short testimonial-like quotes from body text (quoted strings with attributions)
+    const testimonialMatches = Array.from(
+      (metadata.bodyTextContent.match(/"([^"]{20,180})"\s*[-–—]\s*([A-Z][^,\n]{2,50})/g) ?? [])
+    ).slice(0, 3);
+
+    // Footer links: links in a footer element
+    const footerEl = doc.querySelector("footer");
+    const footerLinks = footerEl
+      ? Array.from(footerEl.querySelectorAll("a[href]"))
+          .map((a) => cleanText(a.textContent))
+          .filter((t) => t.length > 1 && t.length < 40)
+          .slice(0, 8)
+      : [];
+
     const domData = {
       navLinks: metadata.navLinks.map((l) => l.text).filter(Boolean).slice(0, 10),
       h1Text: metadata.h1s[0]?.text ?? metadata.title ?? metadata.domain,
+      metaDescription: metadata.metaDescription ?? "",
       h2Texts: metadata.headingHierarchy.filter((e) => e.tag === "h2").map((e) => e.text).slice(0, 10),
       h3Texts: metadata.headingHierarchy.filter((e) => e.tag === "h3").map((e) => e.text).slice(0, 10),
       ctaTexts: metadata.ctas.map((c) => c.text).filter(Boolean).slice(0, 10),
-      paragraphTexts: metadata.paragraphs.slice(0, 5),
+      paragraphTexts: metadata.paragraphs.slice(0, 8),
+      testimonials: testimonialMatches,
+      footerLinks,
       imagesCount: metadata.imageCount,
       hasForm: metadata.formCount > 0,
       metaTitle: metadata.title ?? "",
