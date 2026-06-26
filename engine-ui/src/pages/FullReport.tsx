@@ -278,6 +278,49 @@ function GlossaryStrip() {
   );
 }
 
+function PulseModal({ auditId, onClose }: { auditId: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(auditId).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  };
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(11,28,72,0.45)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, animation: "fadeIn 0.2s ease both" }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 420, background: "rgba(255,255,255,0.97)", borderRadius: 20, padding: "32px 28px", boxShadow: "0 24px 64px rgba(11,28,72,0.22), 0 4px 16px rgba(0,0,0,0.08)", animation: "fadeUp 0.3s cubic-bezier(0.34,1.56,0.64,1) both", position: "relative" }}>
+        <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "rgba(0,0,0,0.06)", border: "none", borderRadius: "50%", width: 28, height: 28, cursor: "pointer", fontSize: 14, color: C.muted, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+        <div style={{ width: 48, height: 48, borderRadius: 14, background: "linear-gradient(135deg,#186132,#14D571)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 18, boxShadow: "0 6px 18px rgba(20,140,89,0.28)" }}>
+          <div style={{ width: 20, height: 20, borderRadius: "50%", border: "2.5px solid rgba(255,255,255,0.6)", position: "relative" }}>
+            <div style={{ position: "absolute", width: 8, height: 8, borderRadius: "50%", background: "#fff", top: "50%", left: "50%", transform: "translate(-50%,-50%)" }} />
+          </div>
+        </div>
+        <div style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 18, fontWeight: 700, color: C.navy, marginBottom: 8, letterSpacing: "-0.3px" }}>Track fixes with Pulse</div>
+        <p style={{ fontSize: 13, color: C.muted, lineHeight: 1.65, margin: "0 0 20px" }}>Pulse is a Chrome & Edge extension that brings your audit checklist to your live site. Tick off fixes as you make them — your score updates in real time.</p>
+        <div style={{ borderRadius: 12, background: "rgba(20,213,113,0.05)", border: "1px solid rgba(20,213,113,0.15)", padding: "14px 16px", marginBottom: 18 }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.emerald, marginBottom: 6 }}>How it works</div>
+          {["Install the Pulse extension for Chrome or Edge.", "Click the Pulse icon and paste your Audit ID.", "Your full checklist appears on any page you visit."].map((s, i) => (
+            <div key={i} style={{ display: "flex", gap: 10, marginBottom: i < 2 ? 8 : 0, alignItems: "flex-start" }}>
+              <div style={{ width: 18, height: 18, borderRadius: "50%", background: C.mint, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#fff", marginTop: 1 }}>{i + 1}</div>
+              <div style={{ fontSize: 12, color: C.navy, lineHeight: 1.5 }}>{s}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ borderRadius: 10, background: "rgba(11,28,72,0.04)", border: "1px solid rgba(11,28,72,0.08)", padding: "10px 14px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: C.dim, marginBottom: 3 }}>Your Audit ID</div>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: C.navy, fontFamily: "monospace", letterSpacing: "0.02em", wordBreak: "break-all" }}>{auditId}</div>
+          </div>
+          <button onClick={copy} style={{ flexShrink: 0, padding: "6px 14px", borderRadius: 8, background: copied ? C.mint : "rgba(91,97,244,0.1)", border: "none", color: copied ? "#fff" : C.violet, fontSize: 11, fontWeight: 700, cursor: "pointer", transition: "all 0.2s ease", fontFamily: "'Space Grotesk',sans-serif" }}>{copied ? "Copied!" : "Copy"}</button>
+        </div>
+        <a href="https://chromewebstore.google.com/detail/uxpact-pulse" target="_blank" rel="noreferrer" style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "13px 20px", borderRadius: 12, background: "linear-gradient(135deg,#186132,#14D571)", color: "#fff", textAlign: "center", fontFamily: "'Unbounded',sans-serif", fontSize: 12, fontWeight: 700, textDecoration: "none", boxShadow: "0 6px 20px rgba(20,140,89,0.28)", transition: "opacity 0.18s ease", letterSpacing: "0.02em" }}
+          onMouseEnter={e => (e.currentTarget.style.opacity = "0.88")}
+          onMouseLeave={e => (e.currentTarget.style.opacity = "1")}>
+          Get Pulse for Chrome & Edge →
+        </a>
+        <p style={{ fontSize: 10.5, color: C.dim, textAlign: "center", margin: "12px 0 0", lineHeight: 1.5 }}>Also works in Microsoft Edge · Free during beta</p>
+      </div>
+    </div>
+  );
+}
+
 function CTACard({ ct }) {
   const [hov, setHov] = useState(false);
   return (
@@ -292,7 +335,7 @@ function CTACard({ ct }) {
   );
 }
 
-function ExpandingCTA({ onBlueprint }) {
+function ExpandingCTA({ onBlueprint, onPulse }) {
   const [expanded, setExpanded] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -303,7 +346,7 @@ function ExpandingCTA({ onBlueprint }) {
   const ctaItems = [
     { ibg: "linear-gradient(145deg,#186132,#148C59)", t: "Full UX Diagnosis + PDF",  d: "Scored audit across UX, industry & content branding. Download and share." },
     { ibg: "linear-gradient(145deg,#818CF8,#5B61F4)", t: "Conversion Blueprint",      d: "Every finding pinned to your page with AI-ready fix prompts.", onClick: onBlueprint },
-    { ibg: "linear-gradient(145deg,#14D571,#148C59)", t: "Pulse Tracker",             d: "Chrome & Edge extension. Check off fixes as you go." },
+    { ibg: "linear-gradient(145deg,#14D571,#148C59)", t: "Pulse Tracker",             d: "Chrome & Edge extension. Check off fixes as you go.", onClick: onPulse },
   ];
   return (
     <div ref={ref} style={{ borderRadius: 16, background: "linear-gradient(135deg,#186132,#14D571)", boxShadow: "0 8px 32px rgba(20,140,89,0.2)", marginBottom: 0 }}>
@@ -380,6 +423,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
   };
 
   // ── UI state ───────────────────────────────────────────────────────
+  const [showPulse, setShowPulse] = useState(false);
   const [filter, setFilter] = useState("all");
   const [wsTab, setWsTab] = useState("findings");
   const [showAllPassed, setShowAllPassed] = useState(false);
@@ -450,6 +494,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
 
   return (
     <div className="fade-in" style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Space Grotesk',sans-serif", position: "relative" }}>
+      {showPulse && <PulseModal auditId={auditId} onClose={() => setShowPulse(false)} />}
       <style>{KEYFRAMES}</style>
       <style>{`@media print{body{background:#fff!important}nav{display:none!important}[style*="position:sticky"],[style*="position: sticky"]{position:relative!important;top:auto!important;z-index:auto!important;box-shadow:none!important}}`}</style>
       <Blobs />
@@ -503,13 +548,16 @@ export default function FullReport({ auditId }: { auditId: string }) {
             })}
           </div>
 
-          <div style={{ background: "rgba(91,97,244,0.06)", border: "1px solid rgba(91,97,244,0.15)", borderRadius: 12, padding: "12px 14px" }}>
+          <div onClick={() => setShowPulse(true)} style={{ background: "rgba(91,97,244,0.06)", border: "1px solid rgba(91,97,244,0.15)", borderRadius: 12, padding: "12px 14px", cursor: "pointer", transition: "box-shadow 0.2s ease" }}
+            onMouseEnter={e => (e.currentTarget.style.boxShadow = "0 4px 16px rgba(91,97,244,0.14)")}
+            onMouseLeave={e => (e.currentTarget.style.boxShadow = "none")}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
               <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.mint, animation: "pulseAnim 2s infinite" }} />
               <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.6px", color: C.violet }}>Pulse Tracker</div>
             </div>
             <div style={{ fontSize: 11.5, fontWeight: 500, color: C.navy, marginBottom: 3 }}>{done} / {total} items addressed</div>
             <div style={{ fontSize: 11, color: C.dim, lineHeight: 1.5 }}>Install the browser extension to track fixes on your live site.</div>
+            <div style={{ marginTop: 8, fontSize: 11, fontWeight: 700, color: C.violet }}>Get Pulse →</div>
           </div>
         </div>
 
@@ -679,7 +727,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
 
           {/* Card 5 — ExpandingCTA (sticky) */}
           <div style={{ position: "sticky", top: 52, zIndex: 40, marginBottom: 0 }}>
-            <ExpandingCTA onBlueprint={goToBlueprint} />
+            <ExpandingCTA onBlueprint={goToBlueprint} onPulse={() => setShowPulse(true)} />
           </div>
 
           <div style={{ textAlign: "center", padding: "24px 0 40px" }}>
