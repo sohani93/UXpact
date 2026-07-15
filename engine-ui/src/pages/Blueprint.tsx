@@ -335,18 +335,27 @@ const FacH2 = ({ children }) => (
 );
 
 // ── PinRow ────────────────────────────────────────────────────────────
+// Pins are positioned absolutely inside FacSection (which has position:relative).
+// Each pin is offset so they stack diagonally rather than piling on top of each other.
 function PinRow({ zone, activeId, setActiveId, findings, isRecovered }) {
   const zf = findings.filter(f => f.zone === zone);
   if (!zf.length) return null;
   return (
-    <div style={{ display: "flex", gap: 7, marginTop: 10 }}>
-      {zf.map(f => (
-        <Pin key={f.id} finding={f}
-          active={activeId === f.id}
-          isRecovered={isRecovered(f.id)}
-          onClick={() => setActiveId(activeId === f.id ? null : f.id)} />
+    <>
+      {zf.map((f, idx) => (
+        <div key={f.id} style={{
+          position: "absolute",
+          top: 10 + idx * 34,
+          right: 12,
+          zIndex: 10,
+        }}>
+          <Pin finding={f}
+            active={activeId === f.id}
+            isRecovered={isRecovered(f.id)}
+            onClick={() => setActiveId(activeId === f.id ? null : f.id)} />
+        </div>
       ))}
-    </div>
+    </>
   );
 }
 

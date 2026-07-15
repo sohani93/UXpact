@@ -1366,6 +1366,7 @@ async function saveAuditResults(url: string, domain: string, industry: Industry,
     pass: f.pass, score: f.score, finding: f.finding, fix: f.fix,
     category: f.category ?? null,
     part: f.part ?? null,
+    manual_review: f.manualReview ?? false,
     dom_zone: DOM_ZONE_MAP[f.id] ?? "body-copy", glossary_terms: [],
     ai_prompt: generatePrompt(f.id, f.finding, f.fix, domain),
   }));
