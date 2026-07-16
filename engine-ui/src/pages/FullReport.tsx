@@ -293,63 +293,40 @@ function CTACard({ ct }) {
 }
 
 const PRO_ITEMS = [
-  {
-    icon: "🔄", title: "Re-audit & Regression Tracking", tier: "Pro",
-    desc: "Re-run the full audit after making changes. See what improved, what regressed, and what new issues surfaced.",
-    detail: "Compare two audits side-by-side. Every score delta is highlighted — so you know exactly what your dev sprint fixed and what still needs attention. Coming Q3 2026.",
-  },
-  {
-    icon: "✨", title: "UXpact Vision", tier: "Pro",
-    desc: "A fully redesigned version of your site with every audit finding applied — improved structure, rewritten copy.",
-    detail: "Receive a full visual mockup with headlines rewritten, CTA placements rethought, and trust signals added. Delivered as a Figma file + annotated PDF. Coming Q4 2026.",
-  },
-  {
-    icon: "🔌", title: "Design Tool Plugins", tier: "Pro Add-on",
-    desc: "Findings surfaced contextually in Figma, Framer, Webflow, WordPress, and more — without leaving your tool.",
-    detail: "Install the UXpact plugin in your design tool of choice. Findings attach as comments directly to the relevant frame or component. Figma beta access available now.",
-  },
+  { icon: "🔄", title: "Re-audit & Regression Tracking", tier: "Pro",        desc: "Re-run the full audit after making changes. See what improved, what regressed, and what new issues surfaced.", route: "reaudit" },
+  { icon: "✨", title: "UXpact Vision",                  tier: "Pro",        desc: "A fully redesigned version of your site with every audit finding applied — improved structure, rewritten copy.",   route: "vision"  },
+  { icon: "🔌", title: "Design Tool Plugins",            tier: "Pro Add-on", desc: "Findings surfaced contextually in Figma, Framer, Webflow, WordPress, and more — without leaving your tool.",       route: "plugins" },
 ];
 
-function UXProCard() {
-  const [openIdx, setOpenIdx] = useState<number | null>(null);
+function UXProCard({ auditId }: { auditId: string }) {
+  const navigate = (route: string) => {
+    window.history.pushState({}, "", `/${route}/${auditId}`);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  };
   return (
     <div style={{ position: "sticky", top: 36, zIndex: 30, borderRadius: 16, padding: "24px 28px", marginBottom: 16, background: "#EDEDFA", border: "1px solid rgba(91,97,244,0.12)", boxShadow: "0 4px 24px rgba(0,0,0,0.08)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
         <div style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 15, fontWeight: 700, color: C.navy }}>UX Pro</div>
         <div style={{ fontSize: 9, fontWeight: 700, background: "rgba(91,97,244,0.1)", color: C.violet, borderRadius: 20, padding: "3px 10px", letterSpacing: "0.04em" }}>Next tier</div>
       </div>
-      <p style={{ fontSize: 13, color: C.muted, margin: "0 0 18px", lineHeight: 1.5 }}>Deeper features available in the next tier. Click any to learn more.</p>
-      {PRO_ITEMS.map((f, i) => {
-        const isOpen = openIdx === i;
-        return (
-          <div key={i}
-            onClick={() => setOpenIdx(isOpen ? null : i)}
-            style={{ padding: "16px 18px", borderRadius: 12, background: isOpen ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.7)", border: `1px solid ${isOpen ? "rgba(91,97,244,0.25)" : "rgba(91,97,244,0.1)"}`, marginBottom: i < 2 ? 10 : 0, boxShadow: isOpen ? "0 6px 20px rgba(91,97,244,0.1)" : "0 2px 8px rgba(0,0,0,0.04)", animation: `fadeUp 0.25s ease ${i * 0.08}s both`, transition: "all 0.22s ease", cursor: "pointer" }}
-            onMouseEnter={e => { if (!isOpen) { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(0,0,0,0.1)"; }}}
-            onMouseLeave={e => { if (!isOpen) { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.04)"; }}}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ fontSize: 24, flexShrink: 0 }}>{f.icon}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 700, color: C.navy }}>{f.title}</div>
-                  <div style={{ fontSize: 9, fontWeight: 700, background: "rgba(91,97,244,0.1)", color: C.violet, borderRadius: 20, padding: "2px 9px" }}>{f.tier}</div>
-                </div>
-                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>{f.desc}</div>
-              </div>
-              <div style={{ fontSize: 14, color: C.violet, flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.22s ease" }}>▶</div>
+      <p style={{ fontSize: 13, color: C.muted, margin: "0 0 18px", lineHeight: 1.5 }}>Deeper features available in the next tier. Click to explore.</p>
+      {PRO_ITEMS.map((f, i) => (
+        <div key={i}
+          onClick={() => navigate(f.route)}
+          style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 18px", borderRadius: 12, background: "rgba(255,255,255,0.7)", border: "1px solid rgba(91,97,244,0.1)", marginBottom: i < 2 ? 10 : 0, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", animation: `fadeUp 0.25s ease ${i * 0.08}s both`, transition: "all 0.22s ease", cursor: "pointer" }}
+          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(0,0,0,0.1)"; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.04)"; }}>
+          <div style={{ fontSize: 24, flexShrink: 0 }}>{f.icon}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: C.navy }}>{f.title}</div>
+              <div style={{ fontSize: 9, fontWeight: 700, background: "rgba(91,97,244,0.1)", color: C.violet, borderRadius: 20, padding: "2px 9px" }}>{f.tier}</div>
             </div>
-            {isOpen && (
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(91,97,244,0.1)", animation: "fadeUp 0.18s ease both" }}>
-                <p style={{ fontSize: 12.5, color: C.navy, lineHeight: 1.6, margin: "0 0 12px" }}>{f.detail}</p>
-                <button style={{ padding: "7px 18px", borderRadius: 8, background: "linear-gradient(135deg,#5B61F4,#818CF8)", border: "none", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "'Space Grotesk',sans-serif" }}
-                  onClick={e => { e.stopPropagation(); window.open("mailto:hello@uxpact.io?subject=UX%20Pro%20interest", "_blank"); }}>
-                  Join waitlist →
-                </button>
-              </div>
-            )}
+            <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>{f.desc}</div>
           </div>
-        );
-      })}
+          <div style={{ fontSize: 20, color: C.dim, flexShrink: 0 }}>→</div>
+        </div>
+      ))}
     </div>
   );
 }

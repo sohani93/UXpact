@@ -3,6 +3,9 @@ import EngineInput from "./components/EngineInput";
 import LoadingState from "./components/LoadingState";
 import FullReport from "./pages/FullReport";
 import ConversionBlueprint from "./pages/Blueprint";
+import ProReaudit from "./pages/ProReaudit";
+import ProVision from "./pages/ProVision";
+import ProPlugins from "./pages/ProPlugins";
 import type { AuditData, AuditRequestFormData, Finding } from "./lib/ui-types";
 
 type AuditMode = "input" | "loading";
@@ -17,8 +20,11 @@ function App() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  if (path.startsWith("/report/")) return <FullReport auditId={path.split("/")[2]} />;
+  if (path.startsWith("/report/"))    return <FullReport auditId={path.split("/")[2]} />;
   if (path.startsWith("/blueprint/")) return <ConversionBlueprint auditId={path.split("/")[2]} />;
+  if (path.startsWith("/reaudit/"))   return <ProReaudit auditId={path.split("/")[2]} />;
+  if (path.startsWith("/vision/"))    return <ProVision auditId={path.split("/")[2]} />;
+  if (path.startsWith("/plugins/"))   return <ProPlugins auditId={path.split("/")[2]} />;
   return <AuditPage />;
 }
 
