@@ -203,15 +203,15 @@ function extractPageMetadata(args: { doc: Document; html: string; url: URL; stat
     });
     if (explicitLogo) return true;
 
+    // Fallback: first anchor in header that links home (text logo, brand name, etc.)
     const headerAnchor = doc.querySelector("header a[href]");
     if (headerAnchor) {
       const href = headerAnchor.getAttribute("href") ?? "";
-      const hasImg = Boolean(headerAnchor.querySelector("img, svg"));
       const resolved = safeResolveUrl(href, url);
       const linksHome = resolved
         ? resolved.origin === url.origin && (resolved.pathname === "/" || resolved.pathname === "" || resolved.pathname === url.pathname)
         : ["/", "./", "#"].includes(href.trim()) || href === url.origin || href === url.href;
-      if (hasImg && linksHome) return true;
+      if (linksHome) return true;
     }
     return false;
   })();
@@ -324,9 +324,12 @@ function runPartAChecks(metadata: PageMetadata): CheckResult[] {
   checks.push(manual("A1.6", "Visual contrast and readability", "First Impression & Clarity", "major", "A"));
   checks.push(manual("A1.7", "Hero relevance to offer", "First Impression & Clarity", "major", "A"));
 
-  const aboveFoldEstimate = metadata.navLinkCount + metadata.ctaCount + metadata.h1Count + Math.min(metadata.imageCount, 3);
-  const a18pass = aboveFoldEstimate <= 9;
-  checks.push({ id: "A1.8", name: a18pass ? "Above-fold is clean" : "Above-fold clutter detected", part: "A", category: "First Impression & Clarity", severity: "major", pass: a18pass, score: a18pass ? 10 : 0, manualReview: false, finding: a18pass ? "Above-fold density is clean." : `Above-fold cluttered with ${aboveFoldEstimate} elements.`, fix: "Reduce above-fold complexity." });
+  // A1.8: Nav overload is a reliable above-fold signal we can measure
+  const a18pass = metadata.navLinkCount <= 7 && metadata.ctaCount <= 4;
+  const a18Finding = a18pass
+    ? `Nav has ${metadata.navLinkCount} links and ${metadata.ctaCount} CTA(s) — above-fold is focused.`
+    : `${metadata.navLinkCount} nav links and ${metadata.ctaCount} CTAs compete for attention above the fold. Visitors face too many choices before understanding your offer.`;
+  checks.push({ id: "A1.8", name: a18pass ? "Above-fold is focused" : "Above-fold competing elements", part: "A", category: "First Impression & Clarity", severity: "major", pass: a18pass, score: a18pass ? 10 : 0, manualReview: false, finding: a18Finding, fix: "Trim nav to 5–7 items. Limit hero to 1 primary + 1 secondary CTA." });
 
   if (metadata.navLinkCount < 1) {
     checks.push({ id: "A2.1", name: "Navigation missing", part: "A", category: "Navigation & Structure", severity: "critical", pass: false, score: 0, manualReview: false, finding: "No navigation found.", fix: "Add a nav bar with 5-7 items." });
@@ -339,7 +342,7 @@ function runPartAChecks(metadata: PageMetadata): CheckResult[] {
   checks.push(manual("A2.2", "Mobile navigation quality", "Navigation & Structure", "major", "A"));
 
   const a23pass = metadata.logoLinksHome;
-  checks.push({ id: "A2.3", name: a23pass ? "Logo links to homepage" : "Logo home link missing", part: "A", category: "Navigation & Structure", severity: "minor", pass: a23pass, score: a23pass ? 10 : 0, manualReview: false, finding: a23pass ? "Logo links to homepage." : "Logo may not link to homepage.", fix: "Wrap logo in an anchor tag pointing to '/'." });
+  checks.push({ id: "A2.3", name: a23pass ? "Logo links to homepage" : "Logo home link missing", part: "A", category: "Navigation & Structure", severity: "minor", pass: a23pass, score: a23pass ? 10 : 0, manualReview: false, finding: a23pass ? "Header anchor detected linking to the homepage root." : "No anchor linking to '/' detected in the header area. Users clicking the logo expect to return home.", fix: "Wrap your logo in <a href='/'> with aria-label='Go to homepage'." });
 
   checks.push(manual("A2.4", "Footer completeness", "Navigation & Structure", "minor", "A"));
   checks.push(manual("A2.5", "Breadcrumbs for deep pages", "Navigation & Structure", "minor", "A"));
@@ -355,7 +358,7 @@ function runPartAChecks(metadata: PageMetadata): CheckResult[] {
 
   const lowerBody = metadata.bodyTextContent.toLowerCase();
   const hasSocialSignals = /testimonial|review|social-proof|trust|client|customer/.test(lowerBody) || /"[^"]{10,}"\s*[-–]\s*[a-z]/i.test(metadata.bodyTextContent);
-  checks.push({ id: "A4.1", name: hasSocialSignals ? "Social proof exists" : "Social proof missing", part: "A", category: "Trust & Social Proof", severity: "critical", pass: hasSocialSignals, score: hasSocialSignals ? 10 : 0, manualReview: false, finding: hasSocialSignals ? "Social proof signals detected." : "No social proof found.", fix: "Add testimonials with full name, role, and specific result." });
+  checks.push({ id: "A4.1", name: hasSocialSignals ? "Social proof exists" : "Social proof missing", part: "A", category: "Trust & Social Proof", severity: "critical", pass: hasSocialSignals, score: hasSocialSignals ? 10 : 0, manualReview: false, finding: hasSocialSignals ? "Testimonial text, review signals, or customer references detected in page copy." : `No testimonials, review quotes, or customer references found in the ${metadata.bodyWordCount}-word page copy. Visitors have no third-party evidence to trust before clicking.`, fix: "Add 2–3 customer testimonials above the fold with full name, role, company, and a specific measurable outcome." });
   checks.push(manual("A4.2", "Credibility specificity", "Trust & Social Proof", "major", "A"));
 
   const hasLogoSignals = /logo|client|partner|brand/.test(lowerBody) || metadata.images.filter((img) => /logo|client|partner|brand/i.test(img.src) || /logo|client|partner|brand/i.test(img.alt ?? "")).length >= 3;
@@ -412,14 +415,24 @@ function runPartAChecks(metadata: PageMetadata): CheckResult[] {
   if (metadata.imageCount > 0) { if (withAlt === 0) a73Score = 0; else if (withAlt / metadata.imageCount < 0.5) a73Score = 4; else if (withAlt !== metadata.imageCount) a73Score = 7; }
   checks.push({ id: "A7.3", name: a73Score >= 7 ? "Images have alt text" : "Images missing alt text", part: "A", category: "Technical Readiness", severity: "major", pass: a73Score >= 7, score: a73Score, manualReview: false, finding: metadata.imageCount === 0 ? "No images." : `${metadata.imagesWithoutAlt}/${metadata.imageCount} images missing alt.`, fix: "Add descriptive alt text to all meaningful images." });
 
-  const missing: string[] = [];
-  if (!metadata.hasFavicon) missing.push("favicon");
-  if (!metadata.hasOgTitle) missing.push("og:title");
-  if (!metadata.hasOgImage) missing.push("og:image");
-  if (!metadata.hasOgDescription) missing.push("og:description");
+  const missingOg: string[] = [];
+  if (!metadata.hasOgTitle) missingOg.push("og:title");
+  if (!metadata.hasOgImage) missingOg.push("og:image");
+  if (!metadata.hasOgDescription) missingOg.push("og:description");
+  const faviconOk = metadata.hasFavicon;
+  const ogComplete = missingOg.length === 0;
+  const a74Pass = faviconOk && ogComplete;
   let a74Score = 0;
-  if (missing.length === 0) a74Score = 10; else if (missing.length === 1) a74Score = 7; else if (missing.length <= 3) a74Score = 5;
-  checks.push({ id: "A7.4", name: missing.length === 0 ? "Favicon and OG tags complete" : "Favicon or OG tags missing", part: "A", category: "Technical Readiness", severity: "minor", pass: missing.length === 0, score: a74Score, manualReview: false, finding: missing.length === 0 ? "Favicon and OG tags complete." : `Missing: ${missing.join(", ")}`, fix: "Add favicon + og:title, og:image, og:description." });
+  if (a74Pass) a74Score = 10;
+  else if (faviconOk && missingOg.length <= 1) a74Score = 7;
+  else if (faviconOk || ogComplete) a74Score = 5;
+  const a74Finding = a74Pass
+    ? "Favicon present. Open Graph tags (og:title, og:image, og:description) all set."
+    : [
+        !faviconOk ? "Favicon not detected in <head> — browser tabs and bookmarks will show a blank icon." : "",
+        missingOg.length > 0 ? `Open Graph tags missing: ${missingOg.join(", ")} — social shares of this URL will show no image or title.` : "",
+      ].filter(Boolean).join(" ");
+  checks.push({ id: "A7.4", name: a74Pass ? "Favicon and OG tags complete" : "Favicon or OG tags missing", part: "A", category: "Technical Readiness", severity: "minor", pass: a74Pass, score: a74Score, manualReview: false, finding: a74Finding, fix: "Add <link rel='icon' href='/favicon.ico'> and og:title, og:image (1200×630px), og:description in <head>." });
 
   return checks;
 }
@@ -517,18 +530,22 @@ function runPartBChecks(metadata: PageMetadata, industry: Industry): CheckResult
 // ─── PART C CHECKS ───
 function runPartCChecks(metadata: PageMetadata): CheckResult[] {
   const ratio = Number.isFinite(metadata.youWeRatio) ? metadata.youWeRatio : metadata.youCount > 0 ? 99 : 0;
-  let c41Score = 0, c41Finding = `Company-centric copy. You/We ratio: ${ratio.toFixed(2)}:1`, c41Name = "Copy is company-centric";
-  if (ratio >= 4) { c41Score = 10; c41Finding = `Excellent customer-centric copy. Ratio: ${ratio.toFixed(2)}:1`; c41Name = "Copy is customer-centric"; }
-  else if (ratio >= 2) { c41Score = 7; c41Finding = `Good but could be more customer-centric. Ratio: ${ratio.toFixed(2)}:1`; c41Name = "Copy is customer-centric"; }
-  else if (ratio >= 1) { c41Score = 4; c41Finding = `Balanced but leans company-centric. Ratio: ${ratio.toFixed(2)}:1`; c41Name = "Copy leans company-centric"; }
+  const _youCount = metadata.youCount;
+  const _weCount = metadata.weCount;
+  let c41Score = 0, c41Name = "Copy is company-centric";
+  let c41Finding = `Page uses "we/our/us" ${_weCount} times vs "you/your" ${_youCount} times — copy talks about the company, not the reader. Ratio: ${ratio.toFixed(2)}:1 (target: 4:1 or higher).`;
+  if (ratio >= 4) { c41Score = 10; c41Finding = `Strong customer-centric copy: "you/your" appears ${_youCount} times vs "we/our" ${_weCount} times (${ratio.toFixed(2)}:1 ratio).`; c41Name = "Copy is customer-centric"; }
+  else if (ratio >= 2) { c41Score = 7; c41Finding = `Copy leans customer-centric: ${_youCount} "you/your" vs ${_weCount} "we/our" (${ratio.toFixed(2)}:1). Aim for 4:1 to fully centre the reader.`; c41Name = "Copy is customer-centric"; }
+  else if (ratio >= 1) { c41Score = 4; c41Finding = `Balanced but company-centric: ${_youCount} "you/your" vs ${_weCount} "we/our" (${ratio.toFixed(2)}:1). Readers want to hear about themselves, not you.`; c41Name = "Copy leans company-centric"; }
 
   const text = metadata.bodyTextContent.toLowerCase();
   const featureMatches = text.match(/\b(includes?|features?|built with|powered by|supports?|allows?)\b/g) ?? [];
   const benefitMatches = text.match(/\b(you'll|save|grow|reduce|increase|without|never again|imagine|finally|stop|effortless)\b/g) ?? [];
-  let c42Score = 0, c42Assessment = "No benefit language detected.", c42Name = "Feature-focused copy";
-  if (benefitMatches.length > featureMatches.length) { c42Score = 10; c42Assessment = "Benefits-led messaging."; c42Name = "Benefits-led copy"; }
-  else if (benefitMatches.length > 0 && benefitMatches.length === featureMatches.length) { c42Score = 7; c42Assessment = "Features and benefits balanced."; c42Name = "Benefits-led copy"; }
-  else if (benefitMatches.length > 0) { c42Score = 4; c42Assessment = "Feature-focused copy dominates."; c42Name = "Feature-focused copy"; }
+  let c42Score = 0, c42Name = "Feature-focused copy";
+  let c42Assessment = `${featureMatches.length} feature phrases ("includes", "built with", "supports") vs ${benefitMatches.length} benefit phrases ("save", "grow", "never again") — copy describes what the product does rather than what the reader gets.`;
+  if (benefitMatches.length > featureMatches.length) { c42Score = 10; c42Assessment = `Benefits-led copy: ${benefitMatches.length} outcome phrases outweigh ${featureMatches.length} feature phrases. Messaging focuses on what readers gain.`; c42Name = "Benefits-led copy"; }
+  else if (benefitMatches.length > 0 && benefitMatches.length === featureMatches.length) { c42Score = 7; c42Assessment = `Balanced messaging: ${benefitMatches.length} benefit phrases and ${featureMatches.length} feature phrases. Lead with outcomes more consistently.`; c42Name = "Benefits-led copy"; }
+  else if (benefitMatches.length > 0) { c42Score = 4; c42Assessment = `Feature-heavy: ${featureMatches.length} feature phrases vs only ${benefitMatches.length} benefit phrases. Rewrite to lead with what readers gain.`; c42Name = "Feature-focused copy"; }
 
   const ctaTexts = metadata.ctas.map((c) => c.text.toLowerCase());
   const benefitCTA = ctaTexts.some((t) => /free|my|today|audit|report|demo|trial|save|results/.test(t));
@@ -543,8 +560,8 @@ function runPartCChecks(metadata: PageMetadata): CheckResult[] {
     manual("C2.2", "Offer-to-audience relevance", "Audience Fit", "major", "C"),
     manual("C3.1", "Positioning clarity", "Positioning", "major", "C"),
     manual("C3.2", "Differentiation strength", "Positioning", "major", "C"),
-    { id: "C4.1", name: c41Name, part: "C", category: "Emotional Resonance", severity: "major", pass: c41Score >= 7, score: c41Score, manualReview: false, finding: c41Finding, fix: "Replace 'We offer...' with 'You get...'. Target 4:1 you/we ratio." },
-    { id: "C4.2", name: c42Name, part: "C", category: "Emotional Resonance", severity: "major", pass: c42Score >= 7, score: c42Score, manualReview: false, finding: `${featureMatches.length} feature phrases vs ${benefitMatches.length} benefit phrases. ${c42Assessment}`, fix: "Lead with benefits, support with features." },
+    { id: "C4.1", name: c41Name, part: "C", category: "Emotional Resonance", severity: "major", pass: c41Score >= 7, score: c41Score, manualReview: false, finding: c41Finding, fix: "Replace 'We offer...' / 'Our platform...' with 'You get...' / 'Your team...'. Target a 4:1 you/we ratio." },
+    { id: "C4.2", name: c42Name, part: "C", category: "Emotional Resonance", severity: "major", pass: c42Score >= 7, score: c42Score, manualReview: false, finding: c42Assessment, fix: "Lead with benefits, support with features. Pattern: '[Outcome you get] — [because/using feature]'." },
     manual("C5.1", "Visual-message consistency", "Copy-Design Alignment", "major", "C"),
     { id: "C5.2", name: c52Name, part: "C", category: "Copy-Design Alignment", severity: "major", pass: c52Pass, score: c52Score, manualReview: false, finding: c52Pass ? "CTAs well-positioned after content." : "CTAs disconnected from content flow.", fix: "Place CTAs immediately after persuasive content sections." },
   ];
@@ -552,24 +569,23 @@ function runPartCChecks(metadata: PageMetadata): CheckResult[] {
 
 // ─── SCORING ───
 function calculateScores(results: CheckResult[]): AuditScores {
-  // All checks included in scoring. Manual checks score 5/10 (unverified risk).
-  // Automated checks score 0 or 10 based on pass/fail.
+  // Only automated checks contribute to scores. Manual checks are flagged separately.
+  const automated = results.filter((r) => !r.manualReview);
   const averageScore = (arr: CheckResult[]): number => {
     if (arr.length === 0) return 0;
     const avg = arr.reduce((s, r) => s + r.score, 0) / arr.length;
     return Math.round(avg * 10);
   };
-  const partA = averageScore(results.filter((r) => r.part === "A"));
-  const partB = averageScore(results.filter((r) => r.part === "B"));
-  const partC = averageScore(results.filter((r) => r.part === "C"));
+  const partA = averageScore(automated.filter((r) => r.part === "A"));
+  const partB = averageScore(automated.filter((r) => r.part === "B"));
+  const partC = averageScore(automated.filter((r) => r.part === "C"));
   const total = Math.round(partA * 0.5 + partB * 0.3 + partC * 0.2);
   const label = total >= 80 ? "Strong" : total >= 60 ? "Decent" : total >= 40 ? "Needs Work" : "Critical";
-  const automatedOnly = results.filter((r) => !r.manualReview);
   return {
     total, partA, partB, partC, label,
-    checksPassed: automatedOnly.filter((r) => r.pass).length,
+    checksPassed: automated.filter((r) => r.pass).length,
     checksFlagged: results.filter((r) => r.manualReview).length,
-    criticalIssues: automatedOnly.filter((r) => r.severity === "critical" && !r.pass).length,
+    criticalIssues: automated.filter((r) => r.severity === "critical" && !r.pass).length,
   };
 }
 

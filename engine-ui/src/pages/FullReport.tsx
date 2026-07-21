@@ -38,6 +38,7 @@ const KEYFRAMES = `
 @keyframes pulseAnim{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.85)}}
 .fade-in{animation:fadeIn 0.4s ease both}
 .fade-up{animation:fadeUp 0.4s ease both}
+button:focus{outline:none}
 `;
 
 // ── Finding state machine ──────────────────────────────────────────────
@@ -85,8 +86,8 @@ const getSevBadge = (s: number) => {
   return           { label: "Critical",   bg: "#FEE2E2", color: C.red    };
 };
 
-function calcCatScore(items: any[]): number {
-  if (!items.length) return 100;
+function calcCatScore(items: any[]): number | null {
+  if (!items.length) return null;
   return Math.round(items.filter(f => f.pass).length / items.length * 100);
 }
 
@@ -204,8 +205,9 @@ function FindingCard({ f, state, onState, active, onOpen }) {
 function CatScores({ cats }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { const t = setTimeout(() => setMounted(true), 100); return () => clearTimeout(t); }, []);
-  const left = [cats[0], cats[2], cats[4]].filter(Boolean);
-  const right = [cats[1], cats[3]].filter(Boolean);
+  const scored = cats.filter(c => c.score !== null);
+  const left = [scored[0], scored[2], scored[4]].filter(Boolean);
+  const right = [scored[1], scored[3]].filter(Boolean);
   const tile = (cat, i) => {
     const sev = getSevBadge(cat.score);
     return (
@@ -233,6 +235,17 @@ function CatScores({ cats }) {
 
 function CBTile({ item, delay }) {
   const [open, setOpen] = useState(false);
+  if (item.score === null) {
+    return (
+      <div style={{ padding: "10px 12px", borderRadius: 10, background: "rgba(255,255,255,0.75)", border: "1px solid rgba(255,255,255,0.85)", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", animation: `fadeUp 0.25s ease ${delay}s both` }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: C.navy }}>{item.label}</div>
+          <span style={{ fontSize: 8.5, fontWeight: 700, color: C.dim, background: "rgba(0,0,0,0.05)", borderRadius: 20, padding: "2px 7px" }}>Visual review</span>
+        </div>
+        <div style={{ fontSize: 10, color: C.dim, lineHeight: 1.4 }}>{item.verdict}</div>
+      </div>
+    );
+  }
   const sc = getSevBadge(item.score);
   return (
     <div onClick={() => setOpen(o => !o)} style={{ padding: "10px 12px", borderRadius: 10, background: "rgba(255,255,255,0.75)", border: "1px solid rgba(255,255,255,0.85)", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", animation: `fadeUp 0.25s ease ${delay}s both`, cursor: "pointer", transition: "box-shadow 0.2s ease" }}>
@@ -383,11 +396,10 @@ export default function FullReport({ auditId }: { auditId: string }) {
 
   const cats = [
     { name: "Copy & Messaging",     score: calcCatScore(nonManual.filter(f => (f.check_id || "").startsWith("C"))) },
-    { name: "CTA Effectiveness",    score: calcCatScore(nonManual.filter(f => ["A1.4","A5.1","A5.2","A5.3","A5.4"].includes(f.check_id))) },
-    { name: "Trust & Social Proof", score: calcCatScore(nonManual.filter(f => ["A4.1","A4.6"].includes(f.check_id))) },
-    { name: "Layout & Hierarchy",   score: calcCatScore(nonManual.filter(f => ["A1.6","A3.2","A7.2"].includes(f.check_id))) },
+    { name: "CTA Effectiveness",    score: calcCatScore(nonManual.filter(f => ["A1.4","A5.1","A5.3","A5.4"].includes(f.check_id))) },
+    { name: "Trust & Social Proof", score: calcCatScore(nonManual.filter(f => ["A4.1","A4.3","A4.5"].includes(f.check_id))) },
     { name: "Technical Readiness",  score: calcCatScore(nonManual.filter(f => (f.check_id || "").startsWith("A7"))) },
-  ];
+  ].filter(c => c.score !== null) as { name: string; score: number }[];
 
   // ── Finding states ─────────────────────────────────────────────────
   const [states, setStates] = useState<Record<string, string>>({});
@@ -565,18 +577,48 @@ export default function FullReport({ auditId }: { auditId: string }) {
               <span style={{ padding: "4px 11px", borderRadius: 5, background: "#E0E7FF", color: C.navy, fontSize: 11.5, fontWeight: 600, fontFamily: "'Space Grotesk',sans-serif" }}>{industry}</span>
             </div>
             <div style={{ height: 1, background: "rgba(0,0,0,0.05)", marginBottom: 20 }} />
-            <div style={{ borderRadius: 12, padding: "20px 22px", background: "linear-gradient(135deg,#186132 0%,#148C59 60%,#14D571 100%)", marginBottom: 20 }}>
-              <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: "rgba(255,255,255,0.6)", marginBottom: 8 }}>Primary Diagnosis</div>
-              <p style={{ fontSize: 13.5, fontWeight: 600, color: "#fff", lineHeight: 1.6, margin: "0 0 8px" }}>
-                {baseScore < 40 ? "Your site has critical conversion blockers that need immediate attention. Fix the red items first."
-                  : baseScore < 60 ? "Decent structure — but your copy isn't converting, and your CTA is asking before it's earned the click."
-                  : "Strong foundation. A few refinements will push your conversion rate further."}
-              </p>
-              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.75)", lineHeight: 1.6, margin: 0 }}>
-                {criticals.length} critical {criticals.length === 1 ? "issue" : "issues"}, {majors.length} major, {minors.length} minor across {displayFindings.length} total findings. {passingChecks.length} checks passing.
-              </p>
-              <CatScores cats={cats} />
-            </div>
+            {(() => {
+              const worstCat = [...cats].sort((a, b) => a.score - b.score)[0];
+              const socialFail = displayFindings.some(f => f.check_id === "A4.1");
+              const h1Fail = displayFindings.find(f => f.check_id === "A1.1");
+              const youWeFail = displayFindings.some(f => f.check_id === "C4.1");
+              const ctaFail = displayFindings.find(f => f.check_id === "A1.4");
+              let diagMain = "";
+              let diagSub = "";
+              if (baseScore < 40) {
+                diagMain = `${criticals.length} critical ${criticals.length === 1 ? "blocker is" : "blockers are"} actively suppressing conversions on ${domain}.`;
+                diagSub = [
+                  h1Fail ? "No clear hero headline — visitors can't identify your offer within 3 seconds." : "",
+                  ctaFail ? `Primary CTA is weak or missing — visitors reach the decision point with no clear next step.` : "",
+                  socialFail ? "No social proof detected — no reason to trust before clicking." : "",
+                  "Resolve the critical findings before anything else."
+                ].filter(Boolean).join(" ");
+              } else if (baseScore < 60) {
+                diagMain = `Workable structure, but ${worstCat ? `${worstCat.name.toLowerCase()} is scoring ${worstCat.score}/100` : "key areas are underperforming"} — well below the ${bench.avg} ${bench.label} average.`;
+                diagSub = [
+                  socialFail ? "No social proof on the page: visitors have no third-party evidence before clicking." : "",
+                  youWeFail ? "Copy talks about the company more than the reader — low you/we ratio." : "",
+                  `Fixing the ${majors.length} major ${majors.length === 1 ? "finding" : "findings"} would close most of the gap to the industry average.`,
+                ].filter(Boolean).join(" ");
+              } else {
+                diagMain = `${domain} scores ${baseScore} — ${baseScore >= bench.avg ? `${baseScore - bench.avg} pts above` : `${bench.avg - baseScore} pts below`} the ${bench.label} average of ${bench.avg}.`;
+                diagSub = [
+                  criticals.length > 0 ? `${criticals.length} critical ${criticals.length === 1 ? "issue remains" : "issues remain"} and should be addressed first.` : "",
+                  `Reaching the top quartile (${bench.top}) requires closing ${bench.top - baseScore} more points.`,
+                ].filter(Boolean).join(" ");
+              }
+              return (
+                <div style={{ borderRadius: 12, padding: "22px 24px", background: "linear-gradient(135deg,#186132 0%,#148C59 60%,#14D571 100%)", marginBottom: 20 }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: "rgba(255,255,255,0.6)", marginBottom: 10 }}>Primary Diagnosis</div>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", lineHeight: 1.5, margin: "0 0 8px", letterSpacing: "-0.2px" }}>{diagMain}</p>
+                  <p style={{ fontSize: 12.5, color: "rgba(255,255,255,0.82)", lineHeight: 1.65, margin: "0 0 6px" }}>{diagSub}</p>
+                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", lineHeight: 1.5, margin: 0 }}>
+                    {criticals.length > 0 && <>{criticals.length} critical · </>}{majors.length} major · {minors.length} minor · {passingChecks.length} passing
+                  </p>
+                  <CatScores cats={cats} />
+                </div>
+              );
+            })()}
             <div style={{ borderTop: "1px solid rgba(0,0,0,0.06)", paddingTop: 16 }}>
               <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: C.dim, marginBottom: 12 }}>Industry Benchmark — {bench.label}</div>
               {([["Your score", baseScore, C.violet], ["Industry avg", bench.avg, C.muted], ["Top quartile", bench.top, C.emerald]] as const).map(([l, v, col], i) => (
