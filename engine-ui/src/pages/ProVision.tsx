@@ -233,13 +233,31 @@ export default function ProVision({ auditId }: { auditId: string }) {
 
   useEffect(() => {
     async function load() {
+      // Check sessionStorage first (populated by the audit engine on completion)
+      const cached = sessionStorage.getItem(`audit:${auditId}`);
+      if (cached) {
+        try {
+          const c = JSON.parse(cached);
+          const d = c.domain ?? "yoursite.com";
+          const rawFindings = (c.findings ?? []).map((f: any) => ({
+            check_id: f.id, pass: f.pass, manual_review: false, name: f.name,
+          }));
+          setDomain(d);
+          setVision(buildVision(d, rawFindings));
+          setLoading(false);
+          return;
+        } catch {}
+      }
+
+      // Fallback: fetch from Supabase
       const [{ data: auditData }, { data: findingsData }] = await Promise.all([
         supabase.from("audits").select("domain,score").eq("id", auditId).maybeSingle(),
         supabase.from("audit_findings").select("check_id,pass,manual_review,name").eq("audit_id", auditId),
       ]);
       if (auditData) {
-        setDomain(auditData.domain ?? "yoursite.com");
-        setVision(buildVision(auditData.domain ?? "yoursite.com", findingsData ?? []));
+        const d = auditData.domain ?? "yoursite.com";
+        setDomain(d);
+        setVision(buildVision(d, findingsData ?? []));
       }
       setLoading(false);
     }

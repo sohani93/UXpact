@@ -38,7 +38,7 @@ const KEYFRAMES = `
 @keyframes pulseAnim{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.85)}}
 .fade-in{animation:fadeIn 0.4s ease both}
 .fade-up{animation:fadeUp 0.4s ease both}
-button:focus{outline:none}
+*:focus{outline:none}
 `;
 
 // ── Finding state machine ──────────────────────────────────────────────
@@ -479,6 +479,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
   const industry = (auditRow?.industry || "saas").toLowerCase();
   const bench = BENCHMARKS[industry] || BENCHMARKS.saas;
   const domain = auditRow?.domain || "yoursite.com";
+  const industryLabel = bench.label;
 
   const goToBlueprint = () => {
     window.history.pushState({}, "", `/blueprint/${auditId}`);
@@ -526,7 +527,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
             {projectedScore > baseScore && (
               <div style={{ marginTop: 6, fontSize: 11, color: C.emerald, fontWeight: 600, animation: "countUp 0.4s ease both" }}>+{projectedScore - baseScore} pts projected</div>
             )}
-            <div style={{ marginTop: 8, fontSize: 10, fontWeight: 600, color: C.dim, textTransform: "uppercase", letterSpacing: "0.6px" }}>{domain} · {industry}</div>
+            <div style={{ marginTop: 8, fontSize: 10, fontWeight: 600, color: C.dim, textTransform: "uppercase", letterSpacing: "0.6px" }}>{domain} · {industryLabel}</div>
             <div style={{ height: 3, borderRadius: 2, background: "rgba(0,0,0,0.06)", overflow: "hidden", margin: "8px 0 4px" }}>
               <div style={{ height: "100%", borderRadius: 2, background: `linear-gradient(90deg,${C.forest},${C.mint})`, width: `${pct}%`, transition: "width 0.6s ease" }} />
             </div>
@@ -574,7 +575,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
           <div style={{ ...cardBgs[0], borderRadius: 16, padding: "28px 28px 20px", marginBottom: 16, animation: "fadeUp 0.4s ease 0s both", boxShadow: "0 8px 32px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.7)" }}>
             <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 16 }}>
               <span style={{ padding: "4px 11px", borderRadius: 5, background: "#D1FAE5", color: C.navy, fontSize: 11.5, fontWeight: 600, fontFamily: "'Space Grotesk',sans-serif" }}>{domain}</span>
-              <span style={{ padding: "4px 11px", borderRadius: 5, background: "#E0E7FF", color: C.navy, fontSize: 11.5, fontWeight: 600, fontFamily: "'Space Grotesk',sans-serif" }}>{industry}</span>
+              <span style={{ padding: "4px 11px", borderRadius: 5, background: "#E0E7FF", color: C.navy, fontSize: 11.5, fontWeight: 600, fontFamily: "'Space Grotesk',sans-serif" }}>{industryLabel}</span>
             </div>
             <div style={{ height: 1, background: "rgba(0,0,0,0.05)", marginBottom: 20 }} />
             {(() => {
@@ -601,11 +602,28 @@ export default function FullReport({ auditId }: { auditId: string }) {
                   `Fixing the ${majors.length} major ${majors.length === 1 ? "finding" : "findings"} would close most of the gap to the industry average.`,
                 ].filter(Boolean).join(" ");
               } else {
-                diagMain = `${domain} scores ${baseScore} — ${baseScore >= bench.avg ? `${baseScore - bench.avg} pts above` : `${bench.avg - baseScore} pts below`} the ${bench.label} average of ${bench.avg}.`;
-                diagSub = [
-                  criticals.length > 0 ? `${criticals.length} critical ${criticals.length === 1 ? "issue remains" : "issues remain"} and should be addressed first.` : "",
-                  `Reaching the top quartile (${bench.top}) requires closing ${bench.top - baseScore} more points.`,
-                ].filter(Boolean).join(" ");
+                const gap = bench.avg - baseScore;
+                const topGap = bench.top - baseScore;
+                if (gap > 0) {
+                  // Below benchmark
+                  diagMain = worstCat
+                    ? `${domain} scores ${baseScore} — ${gap} pts below the ${bench.label} average. ${worstCat.name} is the anchor, sitting at ${worstCat.score}/100.`
+                    : `${domain} scores ${baseScore} — ${gap} pts below the ${bench.label} average of ${bench.avg}.`;
+                  diagSub = [
+                    criticals.length > 0 ? `${criticals.length} critical ${criticals.length === 1 ? "issue" : "issues"} must be resolved first.` : "",
+                    majors.length > 0 ? `Closing the ${majors.length} major ${majors.length === 1 ? "finding" : "findings"} is the fastest path to the top quartile (${bench.top}).` : `Resolve the remaining ${minors.length} minor findings to break into the top quartile (${bench.top}).`,
+                    socialFail ? "Trust signals are missing — adding social proof near your CTA alone can lift conversion 15–30%." : "",
+                  ].filter(Boolean).join(" ");
+                } else {
+                  // Above benchmark
+                  diagMain = worstCat
+                    ? `${domain} leads the ${bench.label} average by ${-gap} pts. ${worstCat.name} at ${worstCat.score}/100 is the last ceiling before the top quartile.`
+                    : `${domain} scores ${baseScore} — ${-gap} pts above the ${bench.label} average of ${bench.avg}.`;
+                  diagSub = [
+                    criticals.length > 0 ? `${criticals.length} critical ${criticals.length === 1 ? "issue" : "issues"} remain and should be addressed immediately.` : "",
+                    `Top quartile (${bench.top}) is ${topGap} pts away — within reach if the major findings are actioned.`,
+                  ].filter(Boolean).join(" ");
+                }
               }
               return (
                 <div style={{ borderRadius: 12, padding: "22px 24px", background: "linear-gradient(135deg,#186132 0%,#148C59 60%,#14D571 100%)", marginBottom: 20 }}>
