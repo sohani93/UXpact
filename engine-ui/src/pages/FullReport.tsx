@@ -240,7 +240,7 @@ function CBTile({ item, delay }) {
       <div style={{ padding: "10px 12px", borderRadius: 10, background: "rgba(255,255,255,0.75)", border: "1px solid rgba(255,255,255,0.85)", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", animation: `fadeUp 0.25s ease ${delay}s both` }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: C.navy }}>{item.label}</div>
-          <span style={{ fontSize: 8.5, fontWeight: 700, color: C.dim, background: "rgba(0,0,0,0.05)", borderRadius: 20, padding: "2px 7px" }}>Visual review</span>
+          <span style={{ fontSize: 8.5, fontWeight: 700, color: C.dim, background: "rgba(0,0,0,0.05)", borderRadius: 20, padding: "2px 7px" }}>Not assessed</span>
         </div>
         <div style={{ fontSize: 10, color: C.dim, lineHeight: 1.4 }}>{item.verdict}</div>
       </div>
@@ -468,10 +468,10 @@ export default function FullReport({ auditId }: { auditId: string }) {
   // ── Content tab ────────────────────────────────────────────────────
   const cs = (ids: string[]) => calcCatScore(nonManual.filter(f => ids.includes(f.check_id)));
   const contentTiles = [
-    { label: "Brand Voice",         score: cs(["C1.1","C1.2","C1.3","C1.4"]), verdict: "Voice consistency and tone across your page copy." },
-    { label: "Messaging Hierarchy", score: cs(["C2.1","C2.2","C2.3"]),        verdict: "How clearly your value prop is communicated at each section." },
-    { label: "Positioning Clarity", score: cs(["C3.1","C3.2","C3.3"]),        verdict: "How well you differentiate from alternatives." },
-    { label: "CTA Copy Quality",    score: cs(["A5.1","A5.2","A5.3"]),        verdict: "Persuasiveness and specificity of your conversion actions." },
+    { label: "You/We Ratio",        score: cs(["C4.1"]),               verdict: "How often your copy addresses the reader vs. talking about the company. You-led copy converts better." },
+    { label: "Benefit Language",    score: cs(["C4.2"]),               verdict: "Whether your copy leads with outcomes for the reader or features of the product." },
+    { label: "CTA Copy Quality",    score: cs(["A5.1","A5.2","A5.3"]), verdict: "Persuasiveness and specificity of your conversion actions." },
+    { label: "Reading Path to CTA", score: cs(["C5.2"]),               verdict: "Whether the page guides the visitor's eye naturally toward the primary call to action." },
   ];
   const contentFindings = displayFindings.filter(f => (f.check_id || "").charAt(0).toUpperCase() === "C");
 

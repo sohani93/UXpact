@@ -150,6 +150,7 @@ async function fetchHtml(url: string): Promise<{ success: true; html: string; re
 
 // ─── EXTRACT METADATA ───
 const CTA_TEXT_PATTERNS = ["get started", "start", "sign up", "try", "book", "contact", "buy", "subscribe", "learn more", "request", "demo", "free", "access", "download", "get my", "get your", "schedule", "claim"];
+const NON_CTA_PATTERNS = ["sync", "connect", "import", "export", "settings", "filter", "search", "cancel", "close", "dismiss", "skip", "back", "next", "previous", "load more", "show more", "save your spot", "remind me", "notify me", "login", "log in", "sign in", "logout", "log out", "copy", "share", "print", "view all", "see all", "read more"];
 
 function extractPageMetadata(args: { doc: Document; html: string; url: URL; statusCode: number; headers: Record<string, string> }): PageMetadata {
   const { doc, url, statusCode, headers } = args;
@@ -226,12 +227,13 @@ function extractPageMetadata(args: { doc: Document; html: string; url: URL; stat
     .filter((entry) => {
       const normalized = entry.text.toLowerCase();
       const classText = entry.classes.toLowerCase();
-      return normalized.length > 0 && (
-        CTA_TEXT_PATTERNS.some((pattern) => normalized.includes(pattern)) ||
-        classText.includes("cta") ||
-        classText.includes("btn") ||
-        classText.includes("button")
-      );
+      if (!normalized || normalized.length < 2 || normalized.length > 60) return false;
+      if (NON_CTA_PATTERNS.some((p) => normalized.includes(p))) return false;
+      const hasCtaClass = classText.includes("cta") || classText.includes("btn") || classText.includes("button");
+      const hasCtaText = CTA_TEXT_PATTERNS.some((pattern) => normalized.includes(pattern));
+      // For <a> tags, require BOTH class signal AND text signal to avoid nav links
+      if (entry.tag === "a") return hasCtaClass && hasCtaText;
+      return hasCtaText || hasCtaClass;
     });
 
   const images = Array.from(doc.querySelectorAll("img")).map((img) => {
@@ -342,7 +344,7 @@ function runPartAChecks(metadata: PageMetadata): CheckResult[] {
   checks.push(manual("A2.2", "Mobile navigation quality", "Navigation & Structure", "major", "A"));
 
   const a23pass = metadata.logoLinksHome;
-  checks.push({ id: "A2.3", name: a23pass ? "Logo links to homepage" : "Logo home link missing", part: "A", category: "Navigation & Structure", severity: "minor", pass: a23pass, score: a23pass ? 10 : 0, manualReview: false, finding: a23pass ? "Header anchor detected linking to the homepage root." : "No anchor linking to '/' detected in the header area. Users clicking the logo expect to return home.", fix: "Wrap your logo in <a href='/'> with aria-label='Go to homepage'." });
+  checks.push({ id: "A2.3", name: a23pass ? "Logo links to homepage" : "Logo home link missing", part: "A", category: "Navigation & Structure", severity: "minor", pass: a23pass, score: a23pass ? 10 : 0, manualReview: false, finding: a23pass ? "Logo links back to the homepage — visitors can always find their way back." : "Your logo doesn't link to the homepage. Every visitor instinctively clicks the logo to go back to the start — when it doesn't work, it breaks a core navigation convention and adds friction.", fix: "Wrap your logo image in <a href='/'> so clicking it returns visitors to the homepage." });
 
   checks.push(manual("A2.4", "Footer completeness", "Navigation & Structure", "minor", "A"));
   checks.push(manual("A2.5", "Breadcrumbs for deep pages", "Navigation & Structure", "minor", "A"));
@@ -389,7 +391,7 @@ function runPartAChecks(metadata: PageMetadata): CheckResult[] {
 
   const uniqueCtas = new Set(ctaTexts.map((t) => t.toLowerCase()));
   const a54pass = uniqueCtas.size <= 3;
-  checks.push({ id: "A5.4", name: a54pass ? "CTAs are focused" : "Competing CTAs detected", part: "A", category: "CTA & Conversion Design", severity: "major", pass: a54pass, score: a54pass ? 10 : 4, manualReview: false, finding: a54pass ? "CTAs are focused." : `${uniqueCtas.size} different CTAs competing.`, fix: "Consolidate to 1 primary + 1 secondary CTA max." });
+  checks.push({ id: "A5.4", name: a54pass ? "CTAs are focused" : "Competing CTAs detected", part: "A", category: "CTA & Conversion Design", severity: "major", pass: a54pass, score: a54pass ? 10 : 4, manualReview: false, finding: a54pass ? `${uniqueCtas.size > 1 ? uniqueCtas.size + " CTAs detected" : "One clear CTA"} — focused and unconflicted. Visitors know exactly what to do next.` : `${uniqueCtas.size} different calls-to-action compete for the visitor's attention. Every extra choice reduces the chance they take any action — Hick's Law. Pick one primary ask and make everything else subordinate.`, fix: "Consolidate to 1 primary CTA and at most 1 supporting secondary action per section." });
 
   checks.push(manual("A5.5", "CTA contrast and placement", "CTA & Conversion Design", "major", "A"));
   checks.push(manual("A6.1", "Visual hierarchy", "Layout & Visual Design", "major", "A"));

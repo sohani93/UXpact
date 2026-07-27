@@ -254,11 +254,9 @@ export default function ProVision({ auditId }: { auditId: string }) {
         supabase.from("audits").select("domain,score").eq("id", auditId).maybeSingle(),
         supabase.from("audit_findings").select("check_id,pass,manual_review,name").eq("audit_id", auditId),
       ]);
-      if (auditData) {
-        const d = auditData.domain ?? "yoursite.com";
-        setDomain(d);
-        setVision(buildVision(d, findingsData ?? []));
-      }
+      const d = auditData?.domain ?? "yoursite.com";
+      setDomain(d);
+      setVision(buildVision(d, findingsData ?? []));
       setLoading(false);
     }
     load();

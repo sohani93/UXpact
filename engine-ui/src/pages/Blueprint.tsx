@@ -334,27 +334,70 @@ const FacH2 = ({ children }) => (
   <div style={{ fontSize: 17, fontWeight: 650, color: C.navy, fontFamily: "'Unbounded', sans-serif", letterSpacing: "-0.3px", marginBottom: 8 }}>{children}</div>
 );
 
+// ── PIN_POSITIONS — per check_id placement on the page facsimile ─────
+const PIN_POSITIONS: Record<string, { side: "left" | "right"; pct: number; top: number }> = {
+  "A1.1": { side: "left",  pct: 15, top: 10 },
+  "A1.2": { side: "right", pct: 8,  top: 14 },
+  "A1.3": { side: "right", pct: 8,  top: 22 },
+  "A1.4": { side: "left",  pct: 12, top: 18 },
+  "A1.5": { side: "right", pct: 6,  top: 26 },
+  "A2.1": { side: "right", pct: 5,  top: 10 },
+  "A2.2": { side: "left",  pct: 8,  top: 14 },
+  "A2.3": { side: "left",  pct: 10, top: 10 },
+  "A3.1": { side: "left",  pct: 12, top: 32 },
+  "A3.2": { side: "right", pct: 8,  top: 36 },
+  "A3.3": { side: "left",  pct: 10, top: 40 },
+  "A4.1": { side: "right", pct: 8,  top: 22 },
+  "A4.2": { side: "left",  pct: 10, top: 26 },
+  "A4.3": { side: "right", pct: 6,  top: 30 },
+  "A4.4": { side: "left",  pct: 12, top: 34 },
+  "A4.5": { side: "right", pct: 8,  top: 38 },
+  "A5.1": { side: "right", pct: 8,  top: 16 },
+  "A5.2": { side: "left",  pct: 10, top: 20 },
+  "A5.3": { side: "right", pct: 6,  top: 24 },
+  "A5.4": { side: "left",  pct: 12, top: 28 },
+  "A6.1": { side: "right", pct: 8,  top: 44 },
+  "A6.2": { side: "left",  pct: 10, top: 48 },
+  "A7.1": { side: "right", pct: 6,  top: 54 },
+  "A7.2": { side: "left",  pct: 12, top: 58 },
+  "A7.3": { side: "right", pct: 8,  top: 62 },
+  "A8.1": { side: "left",  pct: 10, top: 68 },
+  "A8.2": { side: "right", pct: 6,  top: 72 },
+  "B1.1": { side: "left",  pct: 14, top: 30 },
+  "B1.2": { side: "right", pct: 8,  top: 34 },
+  "B2.1": { side: "left",  pct: 10, top: 40 },
+  "B2.2": { side: "right", pct: 6,  top: 44 },
+  "C4.1": { side: "left",  pct: 10, top: 20 },
+  "C4.2": { side: "right", pct: 8,  top: 24 },
+  "C5.1": { side: "left",  pct: 12, top: 50 },
+  "C5.2": { side: "right", pct: 10, top: 44 },
+};
+
 // ── PinRow ────────────────────────────────────────────────────────────
-// Pins are positioned absolutely inside FacSection (which has position:relative).
-// Each pin is offset so they stack diagonally rather than piling on top of each other.
 function PinRow({ zone, activeId, setActiveId, findings, isRecovered }) {
   const zf = findings.filter(f => f.zone === zone);
   if (!zf.length) return null;
   return (
     <>
-      {zf.map((f, idx) => (
-        <div key={f.id} style={{
-          position: "absolute",
-          top: 10 + idx * 34,
-          right: 12,
-          zIndex: 10,
-        }}>
-          <Pin finding={f}
-            active={activeId === f.id}
-            isRecovered={isRecovered(f.id)}
-            onClick={() => setActiveId(activeId === f.id ? null : f.id)} />
-        </div>
-      ))}
+      {zf.map((f, idx) => {
+        const pos = PIN_POSITIONS[f.checkId];
+        const side = pos?.side ?? "right";
+        const pct = pos?.pct ?? 8;
+        const top = pos ? pos.top : 10 + idx * 34;
+        return (
+          <div key={f.id} style={{
+            position: "absolute",
+            top,
+            [side]: `${pct}%`,
+            zIndex: 10,
+          }}>
+            <Pin finding={f}
+              active={activeId === f.id}
+              isRecovered={isRecovered(f.id)}
+              onClick={() => setActiveId(activeId === f.id ? null : f.id)} />
+          </div>
+        );
+      })}
     </>
   );
 }
@@ -450,6 +493,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
     .filter((f) => !f.pass && !f.manual_review)
     .map((f, i) => ({
       id: i + 1,
+      checkId: f.check_id ?? f.checkId ?? "",
       zone: normalizeZone(f.dom_zone ?? f.domZone ?? ""),
       sev: f.severity
         ? f.severity.charAt(0).toUpperCase() + f.severity.slice(1)
@@ -532,9 +576,15 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
         {/* ── Pills row + severity counts ──────────────────────────── */}
         <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 28px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <div style={{ display: "flex", gap: 8 }}>
-            {[{ text: auditData?.domain || "yoursite.com", v: "green" }, { text: "Signups", v: "green" }, { text: "Demo requests", v: "violet" }].map((p, i) => (
-              <Pill key={i} text={p.text} v={p.v} />
-            ))}
+            {(() => {
+              const ctx = sessionStorage.getItem("auditContext");
+              const focusAreas: string[] = ctx ? (JSON.parse(ctx).focusAreas ?? []) : [];
+              const pills = [
+                { text: auditData?.domain || "yoursite.com", v: "green" as const },
+                ...focusAreas.slice(0, 3).map((t, i) => ({ text: t, v: (i % 2 === 0 ? "green" : "violet") as const })),
+              ];
+              return pills.map((p, i) => <Pill key={i} text={p.text} v={p.v} />);
+            })()}
           </div>
           {/* Severity counts — right side */}
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
