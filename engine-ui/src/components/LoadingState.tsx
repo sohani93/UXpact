@@ -115,7 +115,7 @@ export default function LoadingState({ url, goals, auditData, onAccess, onError 
   }, []);
 
   const showResult = phase === "result";
-  const displayGoals = (goals.length ? goals : ["Signups", "Demo requests"]).slice(0, 2);
+  const displayGoals = goals.slice(0, 5);
   const mobileDropoff = auditData ? getMobileDropoff(auditData.findings) : 42;
   const atRisk = auditData ? getAtRisk(auditData.score, auditData.criticalIssues) : "£2,800/mo";
 
@@ -141,7 +141,7 @@ export default function LoadingState({ url, goals, auditData, onAccess, onError 
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
             <Pill text={displayDomain} v="green" />
             {displayGoals.map((g, i) => (
-              <Pill key={i} text={g} v={["Demo requests", "Sales"].includes(g) ? "violet" : "green"} />
+              <Pill key={i} text={g} v={i % 2 === 0 ? "green" : "violet"} />
             ))}
           </div>
 

@@ -581,7 +581,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
               const focusAreas: string[] = ctx ? (JSON.parse(ctx).focusAreas ?? []) : [];
               const pills = [
                 { text: auditData?.domain || "yoursite.com", v: "green" as const },
-                ...focusAreas.slice(0, 3).map((t, i) => ({ text: t, v: (i % 2 === 0 ? "green" : "violet") as const })),
+                ...focusAreas.slice(0, 5).map((t, i) => ({ text: t, v: (i % 2 === 0 ? "green" : "violet") as const })),
               ];
               return pills.map((p, i) => <Pill key={i} text={p.text} v={p.v} />);
             })()}
