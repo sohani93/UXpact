@@ -334,19 +334,68 @@ const FacH2 = ({ children }) => (
   <div style={{ fontSize: 17, fontWeight: 650, color: C.navy, fontFamily: "'Unbounded', sans-serif", letterSpacing: "-0.3px", marginBottom: 8 }}>{children}</div>
 );
 
+// Per-check pin positions: where the finding actually lives on the page.
+// left/right are percentages; top is px offset within the section.
+const PIN_POSITIONS: Record<string, { side: "left" | "right"; pct: number; top: number }> = {
+  "A1.1": { side: "left",  pct: 15, top: 10 }, // H1 — hero left
+  "A1.2": { side: "left",  pct: 20, top: 40 }, // Meta description
+  "A1.3": { side: "right", pct: 15, top: 10 }, // Above-fold CTA
+  "A1.4": { side: "right", pct: 10, top: 10 }, // CTA above fold
+  "A1.5": { side: "left",  pct: 10, top: 10 }, // Logo links home — nav
+  "A1.6": { side: "right", pct: 20, top: 10 }, // Viewport
+  "A2.1": { side: "right", pct: 5,  top: 10 }, // Nav links
+  "A2.2": { side: "left",  pct: 25, top: 10 }, // Nav CTA
+  "A3.1": { side: "left",  pct: 10, top: 18 }, // Images alt text
+  "A3.2": { side: "right", pct: 12, top: 30 }, // Image optimisation
+  "A4.1": { side: "left",  pct: 12, top: 14 }, // Social proof — social section
+  "A4.2": { side: "right", pct: 10, top: 14 }, // Testimonials
+  "A4.3": { side: "left",  pct: 18, top: 14 }, // Client logos
+  "A4.4": { side: "right", pct: 18, top: 38 }, // Review count
+  "A4.5": { side: "left",  pct: 12, top: 38 }, // Security signals — near form/pricing
+  "A5.1": { side: "right", pct: 8,  top: 16 }, // CTA count — hero
+  "A5.2": { side: "right", pct: 8,  top: 50 }, // CTA placement
+  "A5.3": { side: "left",  pct: 20, top: 50 }, // CTA copy
+  "A5.4": { side: "right", pct: 12, top: 16 }, // CTA variety — hero
+  "A6.1": { side: "left",  pct: 10, top: 10 }, // Schema markup
+  "A6.2": { side: "right", pct: 10, top: 10 }, // Canonical
+  "A7.1": { side: "left",  pct: 10, top: 10 }, // OG tags
+  "A7.2": { side: "left",  pct: 15, top: 40 }, // Heading hierarchy
+  "A7.3": { side: "right", pct: 10, top: 10 }, // Favicon
+  "A7.4": { side: "right", pct: 15, top: 10 }, // Viewport meta
+  "A8.1": { side: "left",  pct: 12, top: 10 }, // HTTPS
+  "B1.1": { side: "left",  pct: 10, top: 10 },
+  "B1.2": { side: "right", pct: 10, top: 10 },
+  "C4.1": { side: "left",  pct: 10, top: 20 }, // You/we ratio — hero copy
+  "C4.2": { side: "left",  pct: 10, top: 44 }, // Feature vs benefit
+  "C5.2": { side: "right", pct: 10, top: 44 }, // Reading path to CTA
+};
+
 // ── PinRow ────────────────────────────────────────────────────────────
 function PinRow({ zone, activeId, setActiveId, findings, isRecovered }) {
   const zf = findings.filter(f => f.zone === zone);
   if (!zf.length) return null;
   return (
-    <div style={{ display: "flex", gap: 7, marginTop: 10 }}>
-      {zf.map(f => (
-        <Pin key={f.id} finding={f}
-          active={activeId === f.id}
-          isRecovered={isRecovered(f.id)}
-          onClick={() => setActiveId(activeId === f.id ? null : f.id)} />
-      ))}
-    </div>
+    <>
+      {zf.map((f, idx) => {
+        const pos = PIN_POSITIONS[f.checkId];
+        const side = pos?.side ?? "right";
+        const pct = pos?.pct ?? 5;
+        const top = pos ? pos.top : 10 + idx * 34;
+        return (
+          <div key={f.id} style={{
+            position: "absolute",
+            top,
+            [side]: `${pct}%`,
+            zIndex: 10,
+          }}>
+            <Pin finding={f}
+              active={activeId === f.id}
+              isRecovered={isRecovered(f.id)}
+              onClick={() => setActiveId(activeId === f.id ? null : f.id)} />
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -445,6 +494,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
     .filter((f) => !f.pass && !f.manual_review)
     .map((f, i) => ({
       id: i + 1,
+      checkId: f.check_id ?? f.checkId ?? "",
       zone: normalizeZone(f.dom_zone ?? f.domZone ?? ""),
       sev: f.severity
         ? f.severity.charAt(0).toUpperCase() + f.severity.slice(1)
@@ -526,10 +576,14 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
 
         {/* ── Pills row + severity counts ──────────────────────────── */}
         <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 28px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
-          <div style={{ display: "flex", gap: 8 }}>
-            {[{ text: auditData?.domain || "yoursite.com", v: "green" }, { text: "Signups", v: "green" }, { text: "Demo requests", v: "violet" }].map((p, i) => (
-              <Pill key={i} text={p.text} v={p.v} />
-            ))}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {(() => {
+              const ctx = sessionStorage.getItem("auditContext");
+              const ctxObj = ctx ? JSON.parse(ctx) : {};
+              const focusAreas: string[] = ctxObj.focusAreas ?? [];
+              const pills = [{ text: auditData?.domain || "yoursite.com", v: "green" as const }, ...focusAreas.slice(0, 3).map((t, i) => ({ text: t, v: (i % 2 === 0 ? "green" : "violet") as const }))];
+              return pills.map((p, i) => <Pill key={i} text={p.text} v={p.v} />);
+            })()}
           </div>
           {/* Severity counts — right side */}
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>

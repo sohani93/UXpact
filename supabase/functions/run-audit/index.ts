@@ -240,8 +240,8 @@ function extractPageMetadata(args: { doc: Document; html: string; url: URL; stat
   });
 
   const ogTags: Record<string, string> = {};
-  for (const meta of Array.from(doc.querySelectorAll('meta[property^="og:"]'))) {
-    const property = meta.getAttribute("property");
+  for (const meta of Array.from(doc.querySelectorAll('meta[property^="og:"], meta[name^="og:"]'))) {
+    const property = meta.getAttribute("property") ?? meta.getAttribute("name");
     const content = meta.getAttribute("content");
     if (property && content) ogTags[property] = content;
   }
@@ -331,7 +331,7 @@ function runPartAChecks(metadata: PageMetadata): CheckResult[] {
   if (metadata.navLinkCount < 1) {
     checks.push({ id: "A2.1", name: "Navigation missing", part: "A", category: "Navigation & Structure", severity: "critical", pass: false, score: 0, manualReview: false, finding: "No navigation found.", fix: "Add a nav bar with 5-7 items." });
   } else if (metadata.navLinkCount > 7) {
-    checks.push({ id: "A2.1", name: "Navigation overloaded", part: "A", category: "Navigation & Structure", severity: "critical", pass: false, score: 5, manualReview: false, finding: `Nav has ${metadata.navLinkCount} links — too many.`, fix: "Trim nav to 5-7 items." });
+    checks.push({ id: "A2.1", name: "Navigation overloaded", part: "A", category: "Navigation & Structure", severity: "critical", pass: false, score: 5, manualReview: false, finding: `Navigation has ${metadata.navLinkCount} links. Every extra link splits the visitor's attention — the more choices in the nav, the lower the click-through on any single item, including your primary CTA.`, fix: "Trim nav to 5-7 items. Move secondary destinations (Blog, Careers, etc.) to the footer." });
   } else {
     checks.push({ id: "A2.1", name: "Navigation well-structured", part: "A", category: "Navigation & Structure", severity: "critical", pass: true, score: 10, manualReview: false, finding: `Nav has ${metadata.navLinkCount} links.`, fix: "Maintain clear, concise navigation." });
   }
@@ -359,16 +359,16 @@ function runPartAChecks(metadata: PageMetadata): CheckResult[] {
   checks.push(manual("A4.2", "Credibility specificity", "Trust & Social Proof", "major", "A"));
 
   const hasLogoSignals = /logo|client|partner|brand/.test(lowerBody) || metadata.images.filter((img) => /logo|client|partner|brand/i.test(img.src) || /logo|client|partner|brand/i.test(img.alt ?? "")).length >= 3;
-  checks.push({ id: "A4.3", name: hasLogoSignals ? "Client/partner logos present" : "Client logos missing", part: "A", category: "Trust & Social Proof", severity: "major", pass: hasLogoSignals, score: hasLogoSignals ? 10 : 0, manualReview: false, finding: hasLogoSignals ? "Client/partner logos detected." : "No client logos found.", fix: "Add 3-6 recognizable client/partner logos." });
+  checks.push({ id: "A4.3", name: hasLogoSignals ? "Client/partner logos present" : "Client logos missing", part: "A", category: "Trust & Social Proof", severity: "major", pass: hasLogoSignals, score: hasLogoSignals ? 10 : 0, manualReview: false, finding: hasLogoSignals ? "Client or partner logo signals detected. Brand familiarity near the CTA reduces perceived risk for new visitors." : `No client or partner logos detected. Logo bars work as instant credibility anchors — seeing a recognizable brand signals "others have already taken this risk." Without them, cold visitors must decide based on your copy alone.`, fix: "Add a row of 4–6 recognizable client or partner logos below the hero. If you have notable customers, name them here." });
   checks.push(manual("A4.4", "Case study depth", "Trust & Social Proof", "major", "A"));
 
   const hasSecuritySignals = /privacy|secure|ssl|encrypted/.test(lowerBody);
   const a45Pass = metadata.hasHttps && (metadata.formCount === 0 || hasSecuritySignals);
-  checks.push({ id: "A4.5", name: a45Pass ? "Security signals present" : "Security signals missing", part: "A", category: "Trust & Social Proof", severity: "critical", pass: a45Pass, score: a45Pass ? 10 : 0, manualReview: false, finding: a45Pass ? "HTTPS and security signals present." : "No security signals near forms.", fix: "Add privacy policy link near forms." });
+  checks.push({ id: "A4.5", name: a45Pass ? "Security signals present" : "Security signals missing", part: "A", category: "Trust & Social Proof", severity: "critical", pass: a45Pass, score: a45Pass ? 10 : 0, manualReview: false, finding: a45Pass ? "HTTPS and security context signals detected near form elements — this reduces abandonment at the point of data entry." : `${metadata.formCount > 0 ? `${metadata.formCount} form(s) detected but no security reassurance copy nearby.` : "No HTTPS security context found."} Visitors pause before entering personal data — copy like "No credit card required", "We never share your data", or a privacy badge at the point of submission directly reduces form abandonment.`, fix: "Add a brief trust line directly below your primary form or CTA: e.g., 'No credit card needed · Cancel anytime · Your data is never shared.' Link your privacy policy inline." });
   checks.push(manual("A4.6", "Trust placement near CTAs", "Trust & Social Proof", "minor", "A"));
 
   const a51Pass = metadata.ctaCount >= 2;
-  checks.push({ id: "A5.1", name: a51Pass ? "CTA repeated throughout page" : "CTA not repeated", part: "A", category: "CTA & Conversion Design", severity: "major", pass: a51Pass, score: a51Pass ? 10 : 0, manualReview: false, finding: a51Pass ? "CTAs distributed across page." : `Only ${metadata.ctaCount} CTA(s) found.`, fix: "Add CTAs at hero, mid-page, and footer." });
+  checks.push({ id: "A5.1", name: a51Pass ? "CTA repeated throughout page" : "CTA not repeated", part: "A", category: "CTA & Conversion Design", severity: "major", pass: a51Pass, score: a51Pass ? 10 : 0, manualReview: false, finding: a51Pass ? `${metadata.ctaCount} CTAs distributed across the page — visitors who don't convert above the fold have a clear next step at each subsequent section.` : `Only ${metadata.ctaCount} CTA${metadata.ctaCount === 1 ? "" : "s"} detected across the entire page. Visitors who scroll past the hero with no ready action point are far more likely to leave than scroll back up.`, fix: "Place a CTA in the hero, at the end of each major section, and in the footer. Each instance should use the same primary action." });
   checks.push(manual("A5.2", "CTA visual prominence", "CTA & Conversion Design", "major", "A"));
 
   const strongVerbs = /^(start|get|try|download|book|claim|join|create|request|schedule)/i;
@@ -386,7 +386,7 @@ function runPartAChecks(metadata: PageMetadata): CheckResult[] {
 
   const uniqueCtas = new Set(ctaTexts.map((t) => t.toLowerCase()));
   const a54pass = uniqueCtas.size <= 3;
-  checks.push({ id: "A5.4", name: a54pass ? "CTAs are focused" : "Competing CTAs detected", part: "A", category: "CTA & Conversion Design", severity: "major", pass: a54pass, score: a54pass ? 10 : 4, manualReview: false, finding: a54pass ? "CTAs are focused." : `${uniqueCtas.size} different CTAs competing.`, fix: "Consolidate to 1 primary + 1 secondary CTA max." });
+  checks.push({ id: "A5.4", name: a54pass ? "CTAs are focused" : "Competing CTAs detected", part: "A", category: "CTA & Conversion Design", severity: "major", pass: a54pass, score: a54pass ? 10 : 4, manualReview: false, finding: a54pass ? `CTAs are focused — ${uniqueCtas.size} distinct action${uniqueCtas.size === 1 ? "" : "s"} found. Clear primary action reduces decision paralysis for first-time visitors.` : `${uniqueCtas.size} distinct CTAs detected: ${Array.from(uniqueCtas).slice(0, 4).map(t => `"${t}"`).join(", ")}${uniqueCtas.size > 4 ? "…" : ""}. Each additional option reduces the probability a visitor takes any action — this is Hick's Law in practice.`, fix: "Consolidate to 1 primary CTA repeated throughout the page. A secondary option (e.g., 'See a demo') is acceptable, but every other action competes with your conversion goal." });
 
   checks.push(manual("A5.5", "CTA contrast and placement", "CTA & Conversion Design", "major", "A"));
   checks.push(manual("A6.1", "Visual hierarchy", "Layout & Visual Design", "major", "A"));
@@ -404,7 +404,7 @@ function runPartAChecks(metadata: PageMetadata): CheckResult[] {
   let a72Score = 10, a72Finding = "Heading hierarchy correct.", a72Name = "Heading hierarchy correct";
   if (metadata.h1Count === 0) { a72Score = 0; a72Finding = "No H1 found."; a72Name = "H1 missing"; }
   else if (metadata.h1Count > 1) { a72Score = 4; a72Finding = `Multiple H1s (${metadata.h1Count}).`; a72Name = "Multiple H1s detected"; }
-  else if (metadata.hasSkippedHeadingLevels) { a72Score = 4; a72Finding = "Heading levels skipped."; a72Name = "Heading hierarchy broken"; }
+  else if (metadata.hasSkippedHeadingLevels) { a72Score = 4; a72Finding = "Heading levels skipped — for example, an H3 appears directly under an H1 with no H2 in between. Search engines use heading structure to map content topics; skipped levels break that map and reduce SEO clarity. Screen readers also use headings to navigate, making the page harder to use for accessibility."; a72Name = "Heading hierarchy broken"; }
   checks.push({ id: "A7.2", name: a72Name, part: "A", category: "Technical Readiness", severity: "major", pass: a72Score === 10, score: a72Score, manualReview: false, finding: a72Finding, fix: "Use exactly one H1, then H2, H3 in order." });
 
   const withAlt = metadata.imageCount - metadata.imagesWithoutAlt;
