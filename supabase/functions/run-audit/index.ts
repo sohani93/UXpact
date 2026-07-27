@@ -407,10 +407,10 @@ function runPartAChecks(metadata: PageMetadata): CheckResult[] {
   checks.push({ id: "A7.1", name: hasTitle && hasDescription ? "Meta title & description present" : "Meta tags incomplete", part: "A", category: "Technical Readiness", severity: "major", pass: hasTitle && hasDescription, score: hasTitle && hasDescription ? Math.round((titleScore + descScore) / 2) : 0, manualReview: false, finding: hasTitle && hasDescription ? "Meta title and description present." : `Missing: ${!hasTitle ? "title" : ""}${!hasTitle && !hasDescription ? " and " : ""}${!hasDescription ? "description" : ""}`, fix: "Add meta title (50-60 chars) and description (120-160 chars)." });
 
   let a72Score = 10, a72Finding = "Heading hierarchy correct.", a72Name = "Heading hierarchy correct";
-  if (metadata.h1Count === 0) { a72Score = 0; a72Finding = "No H1 found."; a72Name = "H1 missing"; }
-  else if (metadata.h1Count > 1) { a72Score = 4; a72Finding = `Multiple H1s (${metadata.h1Count}).`; a72Name = "Multiple H1s detected"; }
-  else if (metadata.hasSkippedHeadingLevels) { a72Score = 4; a72Finding = "Heading levels skipped."; a72Name = "Heading hierarchy broken"; }
-  checks.push({ id: "A7.2", name: a72Name, part: "A", category: "Technical Readiness", severity: "major", pass: a72Score === 10, score: a72Score, manualReview: false, finding: a72Finding, fix: "Use exactly one H1, then H2, H3 in order." });
+  if (metadata.h1Count === 0) { a72Score = 0; a72Finding = "The page has no main headline (H1 tag). Every page needs exactly one — it tells search engines and screen readers what the page is about. Without it, both SEO and accessibility take a hit."; a72Name = "H1 missing"; }
+  else if (metadata.h1Count > 1) { a72Score = 4; a72Finding = `The page has ${metadata.h1Count} H1 headlines. There should only ever be one — it defines what the entire page is about. Multiple H1s confuse search engines and dilute your page's SEO signal.`; a72Name = "Multiple H1s detected"; }
+  else if (metadata.hasSkippedHeadingLevels) { a72Score = 4; a72Finding = "The page jumps heading levels — for example going from H1 straight to H4 without H2 or H3 in between. Screen readers and search engines rely on this order to understand the page structure; broken hierarchy hurts both accessibility and SEO ranking."; a72Name = "Heading hierarchy broken"; }
+  checks.push({ id: "A7.2", name: a72Name, part: "A", category: "Technical Readiness", severity: "major", pass: a72Score === 10, score: a72Score, manualReview: false, finding: a72Finding, fix: "Structure headings in order: one H1 for the main page title, then H2 for sections, H3 for subsections. Never jump a level." });
 
   const withAlt = metadata.imageCount - metadata.imagesWithoutAlt;
   let a73Score = 10;
@@ -431,10 +431,10 @@ function runPartAChecks(metadata: PageMetadata): CheckResult[] {
   const a74Finding = a74Pass
     ? "Favicon present. Open Graph tags (og:title, og:image, og:description) all set."
     : [
-        !faviconOk ? "Favicon not detected in <head> — browser tabs and bookmarks will show a blank icon." : "",
-        missingOg.length > 0 ? `Open Graph tags missing: ${missingOg.join(", ")} — social shares of this URL will show no image or title.` : "",
+        !faviconOk ? "Your site has no favicon — the small icon that appears in browser tabs and bookmarks. Without it, your tab looks like a blank placeholder next to every other site, which quietly signals that the site is unfinished." : "",
+        missingOg.length > 0 ? `When someone shares your URL on LinkedIn, Twitter, or Slack, the preview card will appear broken — no image, no title, just a bare link. This is because the Open Graph tags that generate those previews are missing.` : "",
       ].filter(Boolean).join(" ");
-  checks.push({ id: "A7.4", name: a74Pass ? "Favicon and OG tags complete" : "Favicon or OG tags missing", part: "A", category: "Technical Readiness", severity: "minor", pass: a74Pass, score: a74Score, manualReview: false, finding: a74Finding, fix: "Add <link rel='icon' href='/favicon.ico'> and og:title, og:image (1200×630px), og:description in <head>." });
+  checks.push({ id: "A7.4", name: a74Pass ? "Favicon and OG tags complete" : "Favicon or OG tags missing", part: "A", category: "Technical Readiness", severity: "minor", pass: a74Pass, score: a74Score, manualReview: false, finding: a74Finding, fix: "Ask your developer to add a favicon image and social sharing metadata to the site. A 1200×630px preview image, a page title, and a one-line description are all that's needed." });
 
   return checks;
 }

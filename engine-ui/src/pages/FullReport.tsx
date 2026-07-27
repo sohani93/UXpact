@@ -78,7 +78,7 @@ const SEV_DOT: Record<string, string> = {
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────
-const getScoreColor = (s: number) => s >= 70 ? C.mint : s >= 40 ? C.emerald : C.forest;
+const getScoreColor = (s: number) => s >= 70 ? C.mint : s >= 40 ? "#F59E0B" : "#EF4444";
 const getSevBadge = (s: number) => {
   if (s >= 80) return { label: "Strong",     bg: "#D1FAE5", color: C.emerald };
   if (s >= 60) return { label: "Decent",     bg: "#E0E7FF", color: C.violet  };
@@ -176,7 +176,7 @@ function FindingCard({ f, state, onState, active, onOpen }) {
   const handleClick = () => { if (state === "unread") onState("acknowledged"); onOpen(f.id); };
   const cycleState = e => { e.stopPropagation(); onState(STATES[(si + 1) % STATES.length]); };
   return (
-    <div style={{ background: "rgba(255,255,255,0.72)", backdropFilter: "blur(16px)", border: active ? `1.5px solid ${C.violet}` : "1px solid rgba(255,255,255,0.8)", borderRadius: 12, marginBottom: 8, overflow: "hidden", opacity: state === "done" ? 0.6 : 1, transition: "all 0.2s ease", boxShadow: active ? "0 2px 12px rgba(91,97,244,0.12)" : "0 2px 10px rgba(0,0,0,0.04)" }}>
+    <div style={{ background: "rgba(255,255,255,0.72)", backdropFilter: "blur(16px)", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 12, marginBottom: 8, overflow: "hidden", opacity: state === "done" ? 0.6 : 1, transition: "all 0.2s ease", boxShadow: active ? "0 4px 16px rgba(0,0,0,0.10)" : "0 2px 10px rgba(0,0,0,0.04)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "15px 18px", cursor: "pointer", userSelect: "none" }} onClick={handleClick}>
         <div style={{ width: 9, height: 9, borderRadius: "50%", background: sevDot, flexShrink: 0, boxShadow: `0 0 6px ${sevDot}55` }} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -184,7 +184,7 @@ function FindingCard({ f, state, onState, active, onOpen }) {
           <div style={{ fontSize: 11, color: C.muted }}>{f.category || ""}</div>
         </div>
         <div onClick={cycleState} style={{ ...STATE_STYLE[state], padding: "3px 11px", borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'Space Grotesk',sans-serif", letterSpacing: "0.3px", transition: "all 0.25s ease", flexShrink: 0, userSelect: "none" }}>{STATE_LABEL[state]}</div>
-        <div style={{ fontSize: 11, color: active ? C.violet : C.dim, transform: active ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.28s ease", flexShrink: 0 }}>▾</div>
+        <div style={{ fontSize: 11, color: C.dim, transform: active ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.28s ease", flexShrink: 0 }}>▾</div>
       </div>
       {active && (
         <div style={{ padding: "0 18px 16px", animation: "fadeUp 0.2s ease both" }}>
