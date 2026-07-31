@@ -41,51 +41,6 @@ const FIX_TAB_BG = [
   { bg: "rgba(209,250,229,0.15)", border: "rgba(255,255,255,0.6)" },
 ];
 
-const FINDINGS = [
-  {
-    id: 1, zone: "hero", sev: "Critical",
-    title: "Hero copy is feature-led, not benefit-led",
-    fix: `Your H1 reads: "Powerful analytics for modern teams" — this describes the product, not the outcome for the user. Visitors decide within 5 seconds whether to stay. Rewrite to lead with what they gain: clarity, speed, confidence, revenue.`,
-    prompt: `Rewrite this H1 and subheadline to be benefit-led.\n\nCurrent H1: "Powerful analytics for modern teams"\nCurrent sub: "Track, measure, and optimise your product with real-time data."\n\nRequirements:\n- Lead with the user outcome, not the product feature\n- Use "you" language throughout\n- H1 under 10 words\n- Subheadline makes the benefit concrete\n- Tone: direct, confident, no jargon`,
-  },
-  {
-    id: 2, zone: "hero", sev: "Critical",
-    title: "Single high-commitment CTA — no low-risk entry point",
-    fix: `"Start Free Trial" asks for full commitment from cold traffic. Most first-time visitors aren't ready. Add a secondary CTA — "See a 2-min demo" or "Explore features" — to give hesitant visitors a lower-stakes next step alongside the primary action.`,
-    prompt: `Add a secondary CTA alongside "Start Free Trial" on the hero section.\n\nThe secondary CTA should:\n- Offer a lower-commitment action (demo, product tour, or explainer)\n- Be visually subordinate (outline style vs filled primary)\n- Reduce commitment anxiety with its copy\n- Sit inline with the primary button\n\nWrite 3 copy options and the HTML for both buttons side by side.`,
-  },
-  {
-    id: 3, zone: "features", sev: "Major",
-    title: "Feature cards use 'we' language throughout",
-    fix: `Every card opens with "We built..." or "Our engine..." — centering the company, not the user. Rewrite each card so "you" is the subject: what you see, what you get, what you can do. Applies to both titles and body copy.`,
-    prompt: `Rewrite these 3 feature card titles and bodies from "we" to "you" language.\n\nCard 1: "Real-time dashboards — We built our dashboards to give you instant visibility."\nCard 2: "Custom reports — Our reporting engine lets your team generate any report."\nCard 3: "Team collaboration — We designed collaboration features so your whole team stays aligned."\n\nFor each:\n- Title names the user outcome, not what was built\n- Body uses "you" or "your team" as subject\n- Same approximate length`,
-  },
-  {
-    id: 4, zone: "social", sev: "Major",
-    title: "Social proof section has no testimonial quotes or outcome data",
-    fix: `Logo badges alone don't convert — people trust other people, not brand marks. Add 2–3 short testimonial quotes with specific outcomes alongside the logo row. "We reduced reporting time by 60%" lands harder than any logo.`,
-    prompt: `Write 3 customer testimonial quotes for the social proof section.\n\nFormat: one sentence each, max 15 words, written as a direct quote with name and role.\nEach quote should:\n- Name a specific measurable outcome\n- Sound like a real product manager or founder\n- Avoid marketing speak — specific and authentic`,
-  },
-  {
-    id: 5, zone: "pricing", sev: "Major",
-    title: "Pricing section reveals cost before establishing value",
-    fix: `The section jumps straight to plan names and dollar amounts. Cold visitors see "$99/month" before understanding what they get back. Add 1–2 sentences anchoring the value before the pricing grid — reference time saved or a specific outcome.`,
-    prompt: `Write a value anchor to appear above the pricing grid.\n\nCurrent header: "Simple, transparent pricing"\nMissing: any ROI or outcome framing before price reveal.\n\nWrite 2 options (1–2 sentences, max 25 words each) that:\n- Reference a specific outcome or time-to-value before price\n- Reduce price anxiety by contextualising cost against benefit\n- Feel factual and earned, not salesy`,
-  },
-  {
-    id: 6, zone: "cta2", sev: "Minor",
-    title: "Bottom CTA repeats hero ask without handling objections",
-    fix: `"Ready to get started?" mirrors the hero CTA without adding anything new. By this point the user has seen the full page — they need a reason to act NOW. Address the most common objection ("Is it hard to set up?") before the button.`,
-    prompt: `Rewrite the bottom CTA section to handle the setup objection.\n\nCurrent: "Ready to get started? Join thousands of teams already using our platform."\n\nMost common objection: "Is it complicated? Will I need engineering help?"\n\nWrite revised heading + subtext + CTA button label that:\n- Addresses setup simplicity directly\n- Uses existing social proof\n- Ends with a more specific CTA than "Start Free Trial"`,
-  },
-  {
-    id: 7, zone: "nav", sev: "Minor",
-    title: "Nav CTA has no visual distinction from nav links",
-    fix: `"Get Started" in the nav carries the same visual weight as plain nav links. It reads as navigation, not a conversion action. Give it a distinct button treatment — filled or outlined — so the eye is naturally drawn to it.`,
-    prompt: `Write CSS and HTML to style the nav CTA "Get Started" as a visually distinct button.\n\nRequirements:\n- Clearly differentiated from plain text nav links\n- Doesn't overpower the nav — subtle but clickable\n- Works on a light-background nav bar\n- Modern SaaS aesthetic\n- Include hover state`,
-  },
-];
-
 const ZONE_MAP: Record<string, string> = {
   nav: "nav", navigation: "nav", header: "nav",
   hero: "hero", "above-fold": "hero", above_fold: "hero", fold: "hero", cta: "hero",
@@ -450,33 +405,50 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
   const [auditData, setAuditData] = useState<any>(null);
   const [findings, setFindings] = useState<any[]>([]);
   const [recovered, setRecovered] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   useEffect(() => {
     const load = async () => {
+      setLoading(true);
+      setLoadError(null);
       const cached = sessionStorage.getItem(`audit:${auditId}`);
       const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      if (!anon) return;
-
-      // Fetch audit row
-      const auditRes = await fetch(
-        `https://oxminualycvnxofoevjs.supabase.co/rest/v1/audits?id=eq.${auditId}&select=*`,
-        { headers: { apikey: anon, Authorization: `Bearer ${anon}` } }
-      );
-      if (!auditRes.ok) return;
-      const auditRows = await auditRes.json();
-      if (auditRows?.[0]) {
-        setAuditData(auditRows[0]);
-      } else if (cached) {
-        try { setAuditData(JSON.parse(cached)); } catch {}
+      if (!anon) {
+        setLoadError("Supabase isn't configured — can't load this blueprint.");
+        setLoading(false);
+        return;
       }
 
-      // Fetch findings
-      const findingsRes = await fetch(
-        `https://oxminualycvnxofoevjs.supabase.co/rest/v1/audit_findings?audit_id=eq.${auditId}&select=*`,
-        { headers: { apikey: anon, Authorization: `Bearer ${anon}` } }
-      );
-      if (!findingsRes.ok) return;
-      const findingsRows = await findingsRes.json();
-      setFindings(findingsRows ?? []);
+      try {
+        // Fetch audit row
+        const auditRes = await fetch(
+          `https://oxminualycvnxofoevjs.supabase.co/rest/v1/audits?id=eq.${auditId}&select=*`,
+          { headers: { apikey: anon, Authorization: `Bearer ${anon}` } }
+        );
+        if (!auditRes.ok) throw new Error("Failed to load audit data.");
+        const auditRows = await auditRes.json();
+        if (auditRows?.[0]) {
+          setAuditData(auditRows[0]);
+        } else if (cached) {
+          try { setAuditData(JSON.parse(cached)); } catch {}
+        } else {
+          throw new Error("Audit not found.");
+        }
+
+        // Fetch findings
+        const findingsRes = await fetch(
+          `https://oxminualycvnxofoevjs.supabase.co/rest/v1/audit_findings?audit_id=eq.${auditId}&select=*`,
+          { headers: { apikey: anon, Authorization: `Bearer ${anon}` } }
+        );
+        if (!findingsRes.ok) throw new Error("Failed to load findings.");
+        const findingsRows = await findingsRes.json();
+        setFindings(findingsRows ?? []);
+      } catch (err) {
+        setLoadError(err instanceof Error ? err.message : "Failed to load blueprint data.");
+      } finally {
+        setLoading(false);
+      }
     };
     void load();
   }, [auditId]);
@@ -505,7 +477,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
       prompt: f.ai_prompt ?? f.aiPrompt ?? "",
     }));
 
-  const activeFindings = displayFindings.length > 0 ? displayFindings : FINDINGS;
+  const activeFindings = displayFindings;
 
   const activeFinding = activeFindings.find(f => f.id === activeId) || null;
   const activeFindingIndex = activeFinding ? activeFindings.indexOf(activeFinding) : 0;
@@ -759,6 +731,48 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
                 recovered={recovered[String(activeFinding.id)] ?? false}
                 onRecover={() => setRecovered(r => ({ ...r, [String(activeFinding.id)]: !r[String(activeFinding.id)] }))}
               />
+            ) : loadError ? (
+              <div style={{
+                background: "rgba(255,255,255,0.4)",
+                backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+                borderRadius: 14, border: "1px solid rgba(220,38,38,0.2)",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
+                padding: "36px 24px", textAlign: "center",
+              }}>
+                <div style={{ fontSize: 28, marginBottom: 14 }}>⚠️</div>
+                <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 13, fontWeight: 700, color: C.red, letterSpacing: "-0.2px", marginBottom: 8 }}>
+                  Couldn't load this blueprint
+                </div>
+                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif" }}>
+                  {loadError} Try refreshing the page.
+                </div>
+              </div>
+            ) : loading ? (
+              <div style={{
+                background: "rgba(255,255,255,0.4)",
+                backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+                borderRadius: 14, border: "1px solid rgba(255,255,255,0.65)",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
+                padding: "36px 24px", textAlign: "center",
+              }}>
+                <div style={{ fontSize: 12, color: C.muted, fontFamily: "'Space Grotesk', sans-serif" }}>Loading blueprint…</div>
+              </div>
+            ) : activeFindings.length === 0 ? (
+              <div style={{
+                background: "rgba(255,255,255,0.4)",
+                backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+                borderRadius: 14, border: "1px solid rgba(255,255,255,0.65)",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
+                padding: "36px 24px", textAlign: "center",
+              }}>
+                <div style={{ fontSize: 28, marginBottom: 14 }}>✅</div>
+                <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 13, fontWeight: 700, color: C.navy, letterSpacing: "-0.2px", marginBottom: 8 }}>
+                  No conversion blockers found
+                </div>
+                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif" }}>
+                  This audit didn't flag any failing checks to pin here.
+                </div>
+              </div>
             ) : (
               <div style={{
                 background: "rgba(255,255,255,0.4)",
