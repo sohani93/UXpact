@@ -29,6 +29,14 @@ export type AuditRequestFormData = {
   focusAreas: string[];
 };
 
+export type Archetype = "Hero" | "Sage" | "Outlaw" | "Caregiver" | "Creator" | "Ruler";
+
+export type VisionRewrite = {
+  h1: string;
+  hero_copy: string;
+  cta: string;
+};
+
 export type AuditData = {
   auditId: string;
   url: string;
@@ -48,4 +56,13 @@ export type AuditData = {
     imagesCount: number;
     hasForm: boolean;
   };
+  currentArchetype?: Archetype | null;
+  targetArchetype?: Archetype | null;
+  narrativeVerdict?: string | null;
+  croDiagnosis?: string | null;
+  currentArchetypeDescription?: string | null;
+  targetArchetypeDescription?: string | null;
+  archetypeGap?: string | null;
+  storyFixes?: string[] | null;
+  visionRewrite?: VisionRewrite | null;
 };
