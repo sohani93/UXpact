@@ -130,7 +130,16 @@ function useAuditData(auditId: string) {
       if (cached) {
         try {
           const c = JSON.parse(cached);
-          setAuditRow({ id: c.auditId, domain: c.domain, score: c.score, industry: "saas", created_at: c.createdAt });
+          setAuditRow({
+            id: c.auditId, domain: c.domain, score: c.score, industry: "saas", created_at: c.createdAt,
+            narrative_verdict: c.narrativeVerdict ?? null,
+            cro_diagnosis: c.croDiagnosis ?? null,
+            current_archetype: c.currentArchetype ?? null,
+            target_archetype: c.targetArchetype ?? null,
+            archetype_gap: c.archetypeGap ?? null,
+            story_fixes: c.storyFixes ?? null,
+            vision_rewrite: c.visionRewrite ?? null,
+          });
           setFindings((c.findings ?? []).map((f: any) => ({
             id: f.id, check_id: f.id, name: f.name, severity: f.severity,
             finding: f.finding, fix: f.fix, ai_prompt: f.aiPrompt,
