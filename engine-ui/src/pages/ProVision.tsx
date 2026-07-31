@@ -1,13 +1,8 @@
 // @ts-nocheck
 import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { getSupabase } from "../lib/supabase";
 import Nav from "../components/Nav";
 import Blobs from "../components/Blobs";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY,
-);
 
 const C = {
   bg: "#EEF1F5", navy: "#0B1C48", forest: "#186132", emerald: "#148C59",
@@ -254,6 +249,7 @@ export default function ProVision({ auditId }: { auditId: string }) {
       }
 
       // Fallback: fetch from Supabase
+      const supabase = getSupabase();
       const [{ data: auditData }, { data: findingsData }] = await Promise.all([
         supabase.from("audits").select("domain,score,dom_data,vision_rewrite,story_fixes").eq("id", auditId).maybeSingle(),
         supabase.from("audit_findings").select("check_id,pass,manual_review,name").eq("audit_id", auditId),

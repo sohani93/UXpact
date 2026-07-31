@@ -1,15 +1,9 @@
 // @ts-nocheck
 import { useEffect, useRef, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { getSupabase } from "../lib/supabase";
 import Nav from "../components/Nav";
 import Blobs from "../components/Blobs";
 import ArcGauge from "../components/ArcGauge";
-
-// ── Supabase client ────────────────────────────────────────────────────
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY,
-);
 
 // ── Design tokens ──────────────────────────────────────────────────────
 const C = {
@@ -151,6 +145,7 @@ function useAuditData(auditId: string) {
       }
 
       // Always fetch fresh from Supabase
+      const supabase = getSupabase();
       const [{ data: auditData, error: auditErr }, { data: findingsData, error: findingsErr }] = await Promise.all([
         supabase.from("audits").select("*").eq("id", auditId).maybeSingle(),
         supabase.from("audit_findings").select("*").eq("audit_id", auditId),
