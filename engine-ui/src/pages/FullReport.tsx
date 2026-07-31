@@ -307,7 +307,6 @@ function CTACard({ ct }) {
 
 const PRO_ITEMS = [
   { icon: "🔄", title: "Re-audit & Regression Tracking", tier: "Pro",        desc: "Re-run the full audit after making changes. See what improved, what regressed, and what new issues surfaced.", route: "reaudit" },
-  { icon: "✨", title: "UXpact Vision",                  tier: "Pro",        desc: "A fully redesigned version of your site with every audit finding applied — improved structure, rewritten copy.",   route: "vision"  },
   { icon: "🔌", title: "Design Tool Plugins",            tier: "Pro Add-on", desc: "Findings surfaced contextually in Figma, Framer, Webflow, WordPress, and more — without leaving your tool.",       route: "plugins" },
 ];
 
@@ -344,7 +343,7 @@ function UXProCard({ auditId }: { auditId: string }) {
   );
 }
 
-function ExpandingCTA({ onBlueprint }) {
+function ExpandingCTA({ onBlueprint, onVision }) {
   const [expanded, setExpanded] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -353,8 +352,8 @@ function ExpandingCTA({ onBlueprint }) {
     obs.observe(el); return () => obs.disconnect();
   }, []);
   const ctaItems = [
-    { ibg: "linear-gradient(145deg,#186132,#148C59)", t: "Full UX Diagnosis + PDF",  d: "Scored audit across UX, industry & content branding. Download and share." },
     { ibg: "linear-gradient(145deg,#818CF8,#5B61F4)", t: "Conversion Blueprint",      d: "Every finding pinned to your page with AI-ready fix prompts.", onClick: onBlueprint },
+    { ibg: "linear-gradient(145deg,#186132,#148C59)", t: "UX Vision",                 d: "See the story your site should be telling — side by side with what it tells today.", onClick: onVision },
     { ibg: "linear-gradient(145deg,#14D571,#148C59)", t: "Pulse Tracker",             d: "Chrome & Edge extension. Check off fixes as you go." },
   ];
   return (
@@ -483,6 +482,11 @@ export default function FullReport({ auditId }: { auditId: string }) {
 
   const goToBlueprint = () => {
     window.history.pushState({}, "", `/blueprint/${auditId}`);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  };
+
+  const goToVision = () => {
+    window.history.pushState({}, "", `/vision/${auditId}`);
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
 
@@ -625,16 +629,35 @@ export default function FullReport({ auditId }: { auditId: string }) {
                   ].filter(Boolean).join(" ");
                 }
               }
+              const hasNarrative = Boolean(auditRow?.narrative_verdict);
+              const headline = hasNarrative ? "Narrative Verdict" : "Primary Diagnosis";
+              const mainText = hasNarrative ? auditRow.narrative_verdict : diagMain;
+              const subText = hasNarrative ? (auditRow.cro_diagnosis || diagSub) : diagSub;
               return (
-                <div style={{ borderRadius: 12, padding: "22px 24px", background: "linear-gradient(135deg,#186132 0%,#148C59 60%,#14D571 100%)", marginBottom: 20 }}>
-                  <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: "rgba(255,255,255,0.6)", marginBottom: 10 }}>Primary Diagnosis</div>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", lineHeight: 1.5, margin: "0 0 8px", letterSpacing: "-0.2px" }}>{diagMain}</p>
-                  <p style={{ fontSize: 12.5, color: "rgba(255,255,255,0.82)", lineHeight: 1.65, margin: "0 0 6px" }}>{diagSub}</p>
-                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", lineHeight: 1.5, margin: 0 }}>
-                    {criticals.length > 0 && <>{criticals.length} critical · </>}{majors.length} major · {minors.length} minor · {passingChecks.length} passing
-                  </p>
-                  <CatScores cats={cats} />
-                </div>
+                <>
+                  <div style={{ borderRadius: 12, padding: "22px 24px", background: "linear-gradient(135deg,#186132 0%,#148C59 60%,#14D571 100%)", marginBottom: hasNarrative && auditRow?.current_archetype ? 12 : 20 }}>
+                    <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: "rgba(255,255,255,0.6)", marginBottom: 10 }}>{headline}</div>
+                    <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", lineHeight: 1.5, margin: "0 0 8px", letterSpacing: "-0.2px" }}>{mainText}</p>
+                    <p style={{ fontSize: 12.5, color: "rgba(255,255,255,0.82)", lineHeight: 1.65, margin: "0 0 6px" }}>{subText}</p>
+                    <p style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", lineHeight: 1.5, margin: 0 }}>
+                      {criticals.length > 0 && <>{criticals.length} critical · </>}{majors.length} major · {minors.length} minor · {passingChecks.length} passing
+                    </p>
+                    <CatScores cats={cats} />
+                  </div>
+                  {auditRow?.current_archetype && auditRow?.target_archetype && (
+                    <div style={{ borderRadius: 12, padding: "18px 24px", background: "rgba(91,97,244,0.06)", border: "1px solid rgba(91,97,244,0.15)", marginBottom: 20 }}>
+                      <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: C.violet, marginBottom: 10 }}>Archetype Diagnosis</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+                        <span style={{ padding: "3px 10px", borderRadius: 6, background: "#E0E7FF", color: C.navy, fontSize: 12, fontWeight: 700 }}>{auditRow.current_archetype}</span>
+                        <span style={{ color: C.dim, fontSize: 13 }}>→</span>
+                        <span style={{ padding: "3px 10px", borderRadius: 6, background: "#D1FAE5", color: C.navy, fontSize: 12, fontWeight: 700 }}>{auditRow.target_archetype}</span>
+                      </div>
+                      {auditRow.archetype_gap && (
+                        <p style={{ fontSize: 12.5, color: C.navy, fontWeight: 600, lineHeight: 1.6, margin: 0 }}>{auditRow.archetype_gap}</p>
+                      )}
+                    </div>
+                  )}
+                </>
               );
             })()}
             <div style={{ borderTop: "1px solid rgba(0,0,0,0.06)", paddingTop: 16 }}>
@@ -755,7 +778,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
 
           {/* Card 5 — ExpandingCTA (sticky) */}
           <div style={{ position: "sticky", top: 52, zIndex: 40, marginBottom: 0 }}>
-            <ExpandingCTA onBlueprint={goToBlueprint} />
+            <ExpandingCTA onBlueprint={goToBlueprint} onVision={goToVision} />
           </div>
 
           <div style={{ textAlign: "center", padding: "24px 0 40px" }}>

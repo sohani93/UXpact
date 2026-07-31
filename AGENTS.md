@@ -1,184 +1,54 @@
-# AGENTS.md
+# UXpact — Claude Code Project Context
 
-## Project Overview
+## What this product is
+UXpact is a site story diagnostic and alignment engine for no-code founders. Not an audit tool. The 50-check rule-based engine finds problems. A Claude API narration layer explains what they mean in story + CRO terms.
 
-UXpact is a rule-based UX + Content Branding audit engine. Users enter a URL and industry type, and the engine instantly returns a scored audit with findings and fix prescriptions. No AI/LLM APIs are used — the UX Analysis Framework (50 checks with benchmarks and severity levels) IS the intelligence.
+Three questions the product answers:
+1. What story is your site currently telling?
+2. What story should it be telling?
+3. Are you telling it yet?
 
-## Architecture
+## Read these Notion pages at the start of every session
+- System Architecture: https://app.notion.com/p/314685bc7e8c8032a59fd690a25badf7
+- Product Roadmap (phase checklists): https://app.notion.com/p/315685bc7e8c8050a52be5d8e8c7d4d1
+- Strategy & Research: https://app.notion.com/p/310685bc7e8c801cb34fe0ccebbb9ac1
+- UX Analysis Framework + Archetype System: https://app.notion.com/p/309685bc7e8c80a98cbede90561f93be
+- Audit Pipeline: https://app.notion.com/p/315685bc7e8c80839cb1c5971dd8b8e3
 
-```
-User enters URL + Industry
-       ↓
-Supabase Edge Function (Deno)
-  - Fetches URL HTML + headers
-  - Parses with deno-dom
-  - Runs ~50 automated checks (Parts A, B, C)
-  - Calls PageSpeed Insights API (free)
-  - Calls Mozilla Observatory API (free)
-  - Calculates scores
-  - Stores results in Supabase Postgres
-       ↓
-React App (Vite + TypeScript)
-  - /audit        → Engine UI (Input → Loading → Compact Results, state machine)
-  - /report/:id   → Full Report (8-card sticky-stack)
-  - /blueprint/:id → Conversion Blueprint (DOM facsimile + pin markers + fix drawer)
-  - Deployed on Cloudflare Pages, embedded in Framer via iframe
-       ↓
-Pulse Chrome/Edge Extension (Manifest V3)
-  - Synced checklist of fix items
-  - Domain-specific floating widget (bottom-right)
-  - Progress tracking → auto-disables on 100% completion
-```
+The Product Roadmap is the live source of truth for what's done and what's next. Read it before starting work each session.
 
-## Repository Structure
+## Repo & infra
+- GitHub: sohani93/UXpact (private)
+- Live app: uxpact.pages.dev
+- Supabase: oxminualycvnxofoevjs.supabase.co
+- Framer marketing site embeds engine UI via iframe on /audit
 
-```
-UXpact/
-├── AGENTS.md
-├── README.md
-├── prototypes/                        # ← APPROVED UI PROTOTYPES. READ BEFORE BUILDING.
-│   ├── UXpact_Engine_Input_v8.jsx     # Engine Input state
-│   ├── uxpact-loading-full.jsx        # Loading state
-│   ├── uxpact-results.jsx             # Compact Results state
-│   ├── uxpact-full-report.jsx         # Full Report (/report/:id)
-│   ├── uxpact-pulse-widget.jsx        # Pulse Widget (extension overlay)
-│   └── UXpact_Blueprint_v2.jsx        # Conversion Blueprint (/blueprint/:id)
-├── supabase/
-│   ├── functions/
-│   │   └── run-audit/
-│   │       └── index.ts               # Main Edge Function
-│   ├── migrations/
-│   │   └── 001_create_tables.sql      # Full schema — run this first
-│   └── config.toml
-├── engine-ui/                         # React app (Vite + TypeScript)
-│   ├── src/
-│   │   ├── App.tsx
-│   │   ├── components/
-│   │   ├── lib/
-│   │   │   ├── checks/                # Individual check functions
-│   │   │   ├── scoring.ts
-│   │   │   └── types.ts
-│   │   └── utils/
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── tsconfig.json
-├── pulse-extension/
-│   ├── manifest.json
-│   ├── popup/
-│   ├── content/
-│   ├── background/
-│   └── assets/
-└── docs/
-    └── framework-checks.md
-```
+## Tech stack
+- Frontend: React + TypeScript + Vite → Cloudflare Pages
+- Backend: Supabase Edge Functions (Deno/TypeScript)
+- Database: Supabase Postgres
+- Extension: Chrome/Edge Manifest V3 (Pulse)
+- No Python. No new languages for Build 3.
 
-## ⚠️ Prototype Reference — Read This First
+## Critical rules — never break these
+- Never overwrite the deployed Edge Function via PR. Read the deployed source in Supabase dashboard first, confirm it matches GitHub, then deploy via dashboard editor.
+- Never use `npx wrangler deploy` for the frontend. Deploy via Cloudflare dashboard or `wrangler pages deploy`.
+- Never add features that weren't asked for.
+- Never make unrequested UI changes. Flag issues, don't fix them unilaterally.
+- Always write an execution plan and confirm it before building.
 
-**Before writing any UI component, read the relevant file in `/prototypes/`.**
 
-The prototype files are approved, pixel-perfect designs. They are the source of truth for:
-- Component structure and layout
-- Exact CSS values (colours, radii, padding, font sizes, shadows)
-- Animation behaviour (timing, easing, transitions)
-- Interaction logic (hover states, click targets, state transitions)
+## Design system — always match existing
+- Fonts: Unbounded (headers, 660–700) + Space Grotesk (body, 400–500). Never add a third font.
+- Palette: Forest Green #186132, Mint #14D571, Navy #0B1C48, Violet #5B61F4, Soft white #F9F9F9
+- Primary gradient: #186132 → #14D571
+- Aesthetic: light theme, glassmorphic cards, clean badges
+- CTA button colour and position: locked — never change without explicit instruction
+- Read existing component files before writing any new CSS. Never approximate — derive from actual measurements.
 
-**Rules:**
-- Extract style values directly from prototype source — do not estimate or invent
-- If a prototype uses a specific `boxShadow` string, use that exact string
-- If a prototype uses specific font sizes like `13.5px`, use `13.5px` — do not round
-- The prototype wins on visual questions; this spec wins on structural/data questions
-- Do not modify files in `/prototypes/` — they are read-only reference
-
-**Prototype → Route mapping:**
-| File | Used in |
-|---|---|
-| `UXpact_Engine_Input_v8.jsx` | `/audit` — input state |
-| `uxpact-loading-full.jsx` | `/audit` — loading state |
-| `uxpact-results.jsx` | `/audit` — compact results state |
-| `uxpact-full-report.jsx` | `/report/:auditId` |
-| `UXpact_Blueprint_v2.jsx` | `/blueprint/:auditId` |
-| `uxpact-pulse-widget.jsx` | Extension content script overlay |
-
-**CTA tray icons** (Full Report Card 8) are at:
-```
-https://raw.githubusercontent.com/sohani93/uxpact-assets/main/Download%20(Purple).png
-https://raw.githubusercontent.com/sohani93/uxpact-assets/main/Blueprint%20(Green).png
-https://raw.githubusercontent.com/sohani93/uxpact-assets/main/Pulse%20(Purple).png
-```
-Fetch at runtime or import directly — do not substitute with emoji or placeholder icons.
-
-## Tech Stack
-
-- **Runtime:** Deno (Supabase Edge Functions)
-- **Frontend:** React 18 + TypeScript + Vite
-- **Styling:** Tailwind CSS + inline styles where Tailwind can't express exact values
-- **Database:** Supabase Postgres
-- **HTML Parsing:** deno-dom (@b-fuze/deno-dom)
-- **PDF Generation:** jsPDF or @react-pdf/renderer (TBD — choose whichever works in Vite/browser)
-- **Extension:** Chrome Manifest V3 (compatible with Edge)
-- **Hosting:** Cloudflare Pages (React app)
-- **Fonts:** Unbounded + Space Grotesk (Google Fonts)
-
-## Coding Standards
-
-- TypeScript everywhere (strict mode)
-- Each audit check is a standalone function in `engine-ui/src/lib/checks/`
-- Check functions follow this signature:
-  ```ts
-  interface CheckResult {
-    id: string;           // e.g. "A1.1"
-    name: string;         // e.g. "Hero headline exists"
-    pass: boolean;
-    score: number;        // 0–10
-    severity: 'critical' | 'major' | 'minor';
-    finding: string;      // what was found (or not found)
-    fix: string;          // plain-English fix prescription (Blueprint only)
-    aiPrompt: string;     // copyable AI prompt (Blueprint only)
-    category: string;     // e.g. "First Impression & Clarity"
-    part: 'A' | 'B' | 'C';
-    domZone: string;      // Blueprint pin zone: 'hero' | 'nav' | 'cta' | 'social-proof' | 'body-copy' | 'footer'
-    glossaryTerms: string[];
-    manualReview: boolean;
-  }
-
-  type CheckFunction = (dom: Document, metadata: PageMetadata) => CheckResult;
-  ```
-- No console.log in production — use structured error handling
-- All Supabase calls use the `@supabase/supabase-js` client
-- Edge Functions use Deno imports (no npm)
-- Fix prescriptions and AI prompts are stored in DB but **never rendered inline in findings cards** — Blueprint only
-
-## Supabase Details
-
-- **Project URL:** https://oxminualycvnxofoevjs.supabase.co
-- **Edge Function CPU limit:** 2 seconds (network I/O excluded)
-- **Schema:** defined in `supabase/migrations/001_create_tables.sql` — run this before anything else
-- **Tables:** `audits`, `audit_findings`, `pulse_checklists`, `pulse_items`
-- **Key column:** `audits.dom_data` (JSONB) — stores DOM facsimile data for Blueprint rendering
-
-## Database: First Step
-
-Before running any code, apply the migration:
-```bash
-supabase db push
-# or paste 001_create_tables.sql directly into Supabase SQL Editor
-```
-
-Verify all 4 tables exist before proceeding.
-
-## Testing
-
-- Run Edge Functions locally: `supabase functions serve run-audit`
-- Test: `curl -X POST http://localhost:54321/functions/v1/run-audit -H "Content-Type: application/json" -d '{"url":"https://example.com","industry":"saas"}'`
-- React app: `cd engine-ui && npm run dev`
-- Extension: Load unpacked in `chrome://extensions`
-
-## Important Constraints
-
-- **ZERO external AI/LLM API calls.** All checks are rule-based.
-- **No screenshot APIs.** Analysis is HTML/DOM-only.
-- **Free tier only** for all services.
-- **Single page audit** — no multi-page crawling.
-- Edge Function must complete within 2s CPU time.
-- `/audit` is a state machine — Input → Loading → Results with no page reloads between states.
-- Fix prescriptions and AI prompts live in the Blueprint only — not inline in the Full Report findings cards.
+## End of every session
+Update the Product Roadmap Notion page before closing:
+- Tick off completed checklist items
+- Add any new bugs or issues found as unchecked items under the relevant phase
+- Add any architectural decisions made to the Strategy & Research decisions log
+URL: https://app.notion.com/p/315685bc7e8c8050a52be5d8e8c7d4d1

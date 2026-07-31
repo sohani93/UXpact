@@ -11,6 +11,22 @@ const corsHeaders = {
 // ─── TYPES ───
 type Industry = "saas" | "ecommerce" | "portfolio" | "healthcare" | "fintech" | "service";
 type Severity = "critical" | "major" | "minor";
+type Archetype = "Hero" | "Sage" | "Outlaw" | "Caregiver" | "Creator" | "Ruler";
+
+interface ArchetypeDiagnosis {
+  current: Archetype;
+  target: Archetype;
+}
+
+interface StoryNarration {
+  verdict: string;
+  cro_diagnosis: string;
+  current_archetype_description: string;
+  target_archetype_description: string;
+  gap_summary: string;
+  story_fixes: string[];
+  vision_rewrite: { h1: string; hero_copy: string; cta: string };
+}
 
 interface CheckResult {
   id: string;
@@ -274,6 +290,66 @@ function extractPageMetadata(args: { doc: Document; html: string; url: URL; stat
     hasHttps: url.protocol === "https:", youCount, weCount,
     youWeRatio: weCount === 0 ? (youCount > 0 ? 99 : 0) : youCount / weCount,
   };
+}
+
+// ─── ARCHETYPE INFERENCE ───
+// Signals reused from data already extracted for the 50 checks — no new DOM extraction.
+function inferCurrentArchetype(metadata: PageMetadata): Archetype {
+  const scores: Record<Archetype, number> = { Hero: 0, Sage: 0, Outlaw: 0, Caregiver: 0, Creator: 0, Ruler: 0 };
+
+  // Signal 1: you/we pronoun ratio
+  if (metadata.youWeRatio >= 4) { scores.Hero += 2; scores.Caregiver += 1; }
+  else if (metadata.youWeRatio >= 2) { scores.Hero += 1; }
+  else if (metadata.youWeRatio < 1) { scores.Ruler += 1; scores.Sage += 1; }
+
+  // Signal 2: CTA verb type
+  const ctaText = metadata.ctas.map((c) => c.text.toLowerCase()).join(" ");
+  const verbCounts: Record<Archetype, number> = {
+    Hero: countWordOccurrences(ctaText, ["get", "start", "fix", "build", "boost", "grow", "save", "win", "try"]),
+    Sage: countWordOccurrences(ctaText, ["learn", "explore", "read", "discover"]),
+    Ruler: countWordOccurrences(ctaText, ["apply", "request", "inquire"]),
+    Caregiver: countWordOccurrences(ctaText, ["talk", "support", "join", "chat", "connect"]),
+    Outlaw: 0,
+    Creator: 0,
+  };
+  const topVerbArchetype = (Object.entries(verbCounts) as [Archetype, number][]).sort((a, b) => b[1] - a[1])[0];
+  if (topVerbArchetype[1] > 0) scores[topVerbArchetype[0]] += 2;
+
+  // Signal 3: trust signal type
+  const lowerBody = metadata.bodyTextContent.toLowerCase();
+  if (hasAny(lowerBody, ["result", "increase", "reduc", "roi", "grew", "boost"])) scores.Hero += 1;
+  if (hasAny(lowerBody, ["research", "study", "methodology", "proven", "certified"])) scores.Sage += 1;
+  if (hasAny(lowerBody, ["award", "trusted by", "featured in", "partner"]) || metadata.images.filter((img) => /logo|client|partner|brand/i.test(img.src) || /logo|client|partner|brand/i.test(img.alt ?? "")).length >= 3) scores.Ruler += 1;
+  if (hasAny(lowerBody, ["story", "journey", "together", "community", "care"])) scores.Caregiver += 1;
+
+  // Signal 4: copy density
+  if (metadata.bodyWordCount > 800) scores.Sage += 2;
+  else if (metadata.bodyWordCount < 300) { scores.Hero += 1; scores.Outlaw += 1; }
+
+  // Signal 5: H1/H2 tone
+  const headingText = metadata.headingHierarchy.map((h) => h.text).join(" ").toLowerCase();
+  if (hasAny(headingText, ["transform", "results", "faster", "grow", "boost", "win"])) scores.Hero += 2;
+  if (hasAny(headingText, ["research", "proven", "methodology", "expert", "insight"])) scores.Sage += 2;
+  if (hasAny(headingText, ["stop", "ditch", "break", "rules", "different"])) scores.Outlaw += 2;
+  if (hasAny(headingText, ["support", "help", "care", "together", "safe", "guide"])) scores.Caregiver += 2;
+  if (hasAny(headingText, ["premium", "exclusive", "leading", "definitive", "elite", "authority"])) scores.Ruler += 2;
+  if (hasAny(headingText, ["craft", "design", "create", "portfolio", "studio"])) scores.Creator += 2;
+
+  const ranked = (Object.entries(scores) as [Archetype, number][]).sort((a, b) => b[1] - a[1]);
+  return ranked[0][1] > 0 ? ranked[0][0] : "Hero";
+}
+
+function suggestTargetArchetype(industry: Industry, goal: string): Archetype {
+  const g = goal.toLowerCase();
+  switch (industry) {
+    case "saas": return /enterprise|demo/.test(g) ? "Sage" : "Hero";
+    case "ecommerce": return /gift|wellness|care/.test(g) ? "Caregiver" : "Hero";
+    case "portfolio": return /consult|strategy|advis/.test(g) ? "Sage" : "Creator";
+    case "healthcare": return "Caregiver";
+    case "fintech": return /trust|transparent/.test(g) ? "Sage" : "Ruler";
+    case "service": return /premium|exclusive|high-end/.test(g) ? "Ruler" : "Sage";
+    default: return "Hero";
+  }
 }
 
 // ─── MANUAL REVIEW HELPER ───
@@ -1370,13 +1446,103 @@ const DOM_ZONE_MAP: Record<string, string> = {
   "C5.1": "features", "C5.2": "cta2",
 };
 
+// ─── CLAUDE API — STORY NARRATION ───
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+
+const STORY_SYSTEM_PROMPT = "You are a UX story analyst. Synthesise structured audit findings into plain-language narrative verdicts for non-technical founders. Never use UX jargon. Never repeat findings verbatim. Always ground recommendations in the actual site copy provided. Always connect story gap to conversion impact.";
+
+const STORY_NARRATION_SCHEMA = {
+  type: "object",
+  properties: {
+    verdict: { type: "string" },
+    cro_diagnosis: { type: "string" },
+    current_archetype_description: { type: "string" },
+    target_archetype_description: { type: "string" },
+    gap_summary: { type: "string" },
+    story_fixes: { type: "array", items: { type: "string" } },
+    vision_rewrite: {
+      type: "object",
+      properties: { h1: { type: "string" }, hero_copy: { type: "string" }, cta: { type: "string" } },
+      required: ["h1", "hero_copy", "cta"],
+      additionalProperties: false,
+    },
+  },
+  required: ["verdict", "cro_diagnosis", "current_archetype_description", "target_archetype_description", "gap_summary", "story_fixes", "vision_rewrite"],
+  additionalProperties: false,
+};
+
+async function narrateStory(args: {
+  metadata: PageMetadata;
+  industry: Industry;
+  goal: string;
+  archetype: ArchetypeDiagnosis;
+  scores: AuditScores;
+  topFindings: CheckResult[];
+}): Promise<StoryNarration | null> {
+  if (!ANTHROPIC_API_KEY) return null;
+
+  const { metadata, industry, goal, archetype, scores, topFindings } = args;
+  const revenueLeak = scores.total < 40 ? "£2,800/mo" : scores.total < 60 ? "£1,100/mo" : "£480/mo";
+
+  const userPayload = {
+    findings: topFindings.slice(0, 10).map((f) => ({ check_id: f.id, severity: f.severity, finding: f.finding, fix: f.fix, dom_zone: f.domZone })),
+    revenue_leak_estimate: revenueLeak,
+    current_archetype: archetype.current,
+    target_archetype: archetype.target,
+    h1: metadata.h1s[0]?.text ?? "",
+    hero_copy_excerpt: metadata.paragraphs[0]?.slice(0, 200) ?? "",
+    primary_cta_text: metadata.ctas[0]?.text ?? "",
+    meta_description: metadata.metaDescription ?? "",
+    industry,
+    goal,
+  };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5",
+        max_tokens: 1500,
+        system: [{ type: "text", text: STORY_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+        output_config: { format: { type: "json_schema", schema: STORY_NARRATION_SCHEMA } },
+        messages: [{ role: "user", content: JSON.stringify(userPayload) }],
+      }),
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const textBlock = (data.content ?? []).find((b: { type: string }) => b.type === "text");
+    if (!textBlock?.text) return null;
+    return JSON.parse(textBlock.text) as StoryNarration;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // ─── SAVE TO SUPABASE ───
-async function saveAuditResults(url: string, domain: string, industry: Industry, scores: AuditScores, findings: CheckResult[], domData: Record<string, unknown>): Promise<string | null> {
+async function saveAuditResults(url: string, domain: string, industry: Industry, scores: AuditScores, findings: CheckResult[], domData: Record<string, unknown>, goal: string, archetype: ArchetypeDiagnosis, narration: StoryNarration | null): Promise<string | null> {
   if (!supabase) return null;
   const { data: auditData, error: auditError } = await supabase.from("audits").insert({
     url, domain, industry, status: "complete",
     score: scores.total, part_a_score: scores.partA, part_b_score: scores.partB, part_c_score: scores.partC,
     score_label: scores.label, checks_passed: scores.checksPassed, checks_flagged: scores.checksFlagged, critical_issues: scores.criticalIssues, dom_data: domData,
+    goal,
+    current_archetype: archetype.current,
+    target_archetype: archetype.target,
+    narrative_verdict: narration?.verdict ?? null,
+    cro_diagnosis: narration?.cro_diagnosis ?? null,
+    archetype_gap: narration?.gap_summary ?? null,
+    story_fixes: narration?.story_fixes ?? null,
+    vision_rewrite: narration?.vision_rewrite ?? null,
   }).select("id").single();
   if (auditError || !auditData?.id) throw new Error(`Failed to create audit: ${auditError?.message}`);
   const rows = findings.map((f) => ({
@@ -1408,6 +1574,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const industry: Industry = ["saas", "ecommerce", "portfolio", "healthcare", "fintech", "service"].includes(payload.industry)
       ? payload.industry
       : "saas";
+    const goal: string = typeof payload.goal === "string" ? payload.goal : "";
 
     const fetchResult = await fetchHtml(targetUrl.toString());
     if (!fetchResult.success) return jsonResponse({ error: "URL_UNREACHABLE", message: fetchResult.error }, 502);
@@ -1427,6 +1594,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const scores = calculateScores(findings);
     const topFindings = getTopFindings(findings, 5);
 
+    const archetype: ArchetypeDiagnosis = {
+      current: inferCurrentArchetype(metadata),
+      target: suggestTargetArchetype(industry, goal),
+    };
+
     const domData = {
       navLinks: metadata.navLinks.map((l) => l.text).filter(Boolean).slice(0, 10),
       h1Text: metadata.h1s[0]?.text ?? metadata.title ?? metadata.domain,
@@ -1439,9 +1611,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
       metaTitle: metadata.title ?? "",
     };
 
-    const auditId = await saveAuditResults(targetUrl.toString(), metadata.domain, industry, scores, findings, domData);
+    const narration = await narrateStory({ metadata, industry, goal, archetype, scores, topFindings: getTopFindings(findings, 10) });
 
-    return jsonResponse({ auditId, scores, findings, topFindings, domData }, 200);
+    const auditId = await saveAuditResults(targetUrl.toString(), metadata.domain, industry, scores, findings, domData, goal, archetype, narration);
+
+    return jsonResponse({
+      auditId, scores, findings, topFindings, domData,
+      currentArchetype: archetype.current,
+      targetArchetype: archetype.target,
+      narrativeVerdict: narration?.verdict ?? null,
+      croDiagnosis: narration?.cro_diagnosis ?? null,
+      currentArchetypeDescription: narration?.current_archetype_description ?? null,
+      targetArchetypeDescription: narration?.target_archetype_description ?? null,
+      archetypeGap: narration?.gap_summary ?? null,
+      storyFixes: narration?.story_fixes ?? null,
+      visionRewrite: narration?.vision_rewrite ?? null,
+    }, 200);
   } catch (error) {
     return jsonResponse({ error: error instanceof Error ? error.message : "Unexpected error" }, 500);
   }

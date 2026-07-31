@@ -1,9 +1,9 @@
 // @ts-nocheck
 import { useState } from "react";
 import ArcGauge from "./ArcGauge";
-import type { Finding } from "../lib/ui-types";
+import type { Archetype, Finding } from "../lib/ui-types";
 
-const C = { navy: "#0B1C48", forest: "#186132", mint: "#14D571", muted: "#6B7280", dim: "#9CA3AF" };
+const C = { navy: "#0B1C48", forest: "#186132", mint: "#14D571", violet: "#5B61F4", muted: "#6B7280", dim: "#9CA3AF" };
 
 const SEV_DOT: Record<string, string> = {
   critical: "#EF4444",
@@ -18,14 +18,30 @@ type CompactResultsProps = {
   atRisk: string;
   onAccess: () => void;
   animated?: boolean;
+  narrativeVerdict?: string | null;
+  currentArchetype?: Archetype | null;
+  targetArchetype?: Archetype | null;
 };
 
-export default function CompactResults({ score, topFindings, mobileDropoff, atRisk, onAccess, animated = true }: CompactResultsProps) {
+export default function CompactResults({ score, topFindings, mobileDropoff, atRisk, onAccess, animated = true, narrativeVerdict, currentArchetype, targetArchetype }: CompactResultsProps) {
   const [hovCTA, setHovCTA] = useState(false);
   const top = topFindings.slice(0, 3);
 
   return (
     <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
+      {narrativeVerdict && (
+        <div className="fade-up" style={{ animationDelay: "0s", width: "100%", maxWidth: 520, borderRadius: 12, padding: "16px 20px", background: "linear-gradient(135deg,#186132 0%,#148C59 60%,#14D571 100%)" }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: "rgba(255,255,255,0.6)", marginBottom: 6 }}>Your Story</div>
+          <p style={{ fontSize: 13.5, fontWeight: 600, color: "#fff", lineHeight: 1.55, margin: 0 }}>{narrativeVerdict}</p>
+        </div>
+      )}
+
+      {currentArchetype && targetArchetype && (
+        <div className="fade-up" style={{ animationDelay: "0.1s", width: "100%", maxWidth: 520, textAlign: "center", fontSize: 12.5, color: C.navy }}>
+          Your site reads as <span style={{ fontWeight: 700, color: C.violet }}>{currentArchetype}</span>. It should read as <span style={{ fontWeight: 700, color: C.forest }}>{targetArchetype}</span>.
+        </div>
+      )}
+
       <div className="fade-up" style={{ animationDelay: "0s" }}>
         <ArcGauge score={score} animated={animated} />
       </div>

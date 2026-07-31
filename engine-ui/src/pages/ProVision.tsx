@@ -64,8 +64,8 @@ function Pin({ id, label, color, activeId, setActiveId, x, y }: any) {
   );
 }
 
-/* ── Build the vision mockup from real findings ─────────────────── */
-function buildVision(domain: string, findings: any[]) {
+/* ── Build the vision mockup from real dom_data + LLM story output ── */
+function buildVision(domain: string, findings: any[], domData: any, visionRewrite: { h1?: string; hero_copy?: string; cta?: string } | null, storyFixes: string[] | null) {
   const failing = findings.filter(f => !f.pass && !f.manual_review);
   const has = (id: string) => failing.some(f => f.check_id === id);
 
@@ -76,35 +76,39 @@ function buildVision(domain: string, findings: any[]) {
   const copyFail   = has("C4.1");
   const priceFail  = has("A3.3") || has("B2.1");
 
-  // Industry-adaptive content
   const domainLabel = domain.replace(/^https?:\/\//, "").replace(/\/.*/, "");
+  const currentH1 = domData?.h1Text || "Your site headline (audited as-is)";
+  const currentCta = domData?.ctaTexts?.[0] || "Get started";
 
-  const headline = h1Fail
-    ? `The faster way to get results — ${domainLabel.split(".")[0]}`
-    : "Your site headline (audited as-is)";
+  // Prefer the LLM's story rewrite; fall back to rule-based synthesis when it's unavailable.
+  const headline = visionRewrite?.h1
+    || (h1Fail ? `The faster way to get results — ${domainLabel.split(".")[0]}` : currentH1);
 
-  const subheadline = copyFail
-    ? "Join thousands of teams who've cut their time-to-result in half. No setup fee. Cancel any time."
-    : "A clear, outcome-focused subheadline that speaks to what visitors actually gain.";
+  const subheadline = visionRewrite?.hero_copy
+    || (copyFail
+      ? "Join thousands of teams who've cut their time-to-result in half. No setup fee. Cancel any time."
+      : "A clear, outcome-focused subheadline that speaks to what visitors actually gain.");
 
-  const ctaLabel = ctaFail ? "Start for free →" : "Get started";
+  const ctaLabel = visionRewrite?.cta || (ctaFail ? "Start for free →" : currentCta);
   const ctaMicro = ctaFail ? "No credit card required · Set up in 2 minutes" : "";
 
   const annotations: { id: number; label: string; color: string }[] = [];
   let pinId = 1;
+  const fixQueue = storyFixes ? [...storyFixes] : [];
+  const nextLabel = (fallback: string) => fixQueue.length > 0 ? fixQueue.shift()! : fallback;
 
-  if (h1Fail) annotations.push({ id: pinId++, label: "H1 rewritten to be benefit-led — focuses on outcome, not features", color: C.mint });
-  if (ctaFail) annotations.push({ id: pinId++, label: "CTA moved above fold with micro-copy to reduce hesitation", color: C.violet });
-  if (trustFail) annotations.push({ id: pinId++, label: "Trust strip inserted below CTA — social proof at the moment of decision", color: C.mint });
-  if (copyFail) annotations.push({ id: pinId++, label: "Feature cards rewritten with outcome language (you, not we)", color: C.violet });
-  if (socialFail) annotations.push({ id: pinId++, label: "Testimonial quote added near CTA — trust proximity", color: C.mint });
-  if (priceFail) annotations.push({ id: pinId++, label: "Pricing anchor copy added to prime value before grid", color: C.violet });
+  if (h1Fail || visionRewrite?.h1) annotations.push({ id: pinId++, label: nextLabel("H1 rewritten to be benefit-led — focuses on outcome, not features"), color: C.mint });
+  if (ctaFail) annotations.push({ id: pinId++, label: nextLabel("CTA moved above fold with micro-copy to reduce hesitation"), color: C.violet });
+  if (trustFail) annotations.push({ id: pinId++, label: nextLabel("Trust strip inserted below CTA — social proof at the moment of decision"), color: C.mint });
+  if (copyFail) annotations.push({ id: pinId++, label: nextLabel("Feature cards rewritten with outcome language (you, not we)"), color: C.violet });
+  if (socialFail) annotations.push({ id: pinId++, label: nextLabel("Testimonial quote added near CTA — trust proximity"), color: C.mint });
+  if (priceFail) annotations.push({ id: pinId++, label: nextLabel("Pricing anchor copy added to prime value before grid"), color: C.violet });
   if (annotations.length === 0) {
     annotations.push({ id: 1, label: "Structure is solid — Vision focuses on copy and trust refinements", color: C.mint });
   }
 
   const changes = [
-    h1Fail     && ["Benefit-led H1",        C.mint],
+    (h1Fail || visionRewrite?.h1) && ["Benefit-led H1",        C.mint],
     ctaFail    && ["CTA above fold",         C.violet],
     ctaFail    && ["Micro-copy added",        C.mint],
     trustFail  && ["Trust strip",             C.violet],
@@ -113,7 +117,7 @@ function buildVision(domain: string, findings: any[]) {
     priceFail  && ["Pricing anchor copy",     C.mint],
   ].filter(Boolean) as [string, string][];
 
-  return { headline, subheadline, ctaLabel, ctaMicro, annotations, changes, domainLabel, h1Fail, ctaFail, trustFail, socialFail, copyFail };
+  return { headline, subheadline, ctaLabel, ctaMicro, annotations, changes, domainLabel, h1Fail, ctaFail, trustFail, socialFail, copyFail, currentH1, currentCta, navLinks: domData?.navLinks ?? [] };
 }
 
 /* ── Mockup render ──────────────────────────────────────────────── */
@@ -243,7 +247,7 @@ export default function ProVision({ auditId }: { auditId: string }) {
             check_id: f.id, pass: f.pass, manual_review: false, name: f.name,
           }));
           setDomain(d);
-          setVision(buildVision(d, rawFindings));
+          setVision(buildVision(d, rawFindings, c.domData ?? null, c.visionRewrite ?? null, c.storyFixes ?? null));
           setLoading(false);
           return;
         } catch {}
@@ -251,12 +255,12 @@ export default function ProVision({ auditId }: { auditId: string }) {
 
       // Fallback: fetch from Supabase
       const [{ data: auditData }, { data: findingsData }] = await Promise.all([
-        supabase.from("audits").select("domain,score").eq("id", auditId).maybeSingle(),
+        supabase.from("audits").select("domain,score,dom_data,vision_rewrite,story_fixes").eq("id", auditId).maybeSingle(),
         supabase.from("audit_findings").select("check_id,pass,manual_review,name").eq("audit_id", auditId),
       ]);
       const d = auditData?.domain ?? "yoursite.com";
       setDomain(d);
-      setVision(buildVision(d, findingsData ?? []));
+      setVision(buildVision(d, findingsData ?? [], auditData?.dom_data ?? null, auditData?.vision_rewrite ?? null, auditData?.story_fixes ?? null));
       setLoading(false);
     }
     load();
@@ -287,7 +291,7 @@ export default function ProVision({ auditId }: { auditId: string }) {
               Vision
             </span>
           </h1>
-          <div style={{ fontSize: 9, fontWeight: 700, background: "rgba(91,97,244,0.1)", color: C.violet, borderRadius: 20, padding: "4px 12px", letterSpacing: "0.04em" }}>Pro</div>
+          <div style={{ fontSize: 9, fontWeight: 700, background: "rgba(91,97,244,0.1)", color: C.violet, borderRadius: 20, padding: "4px 12px", letterSpacing: "0.04em" }}>Free during beta</div>
         </div>
         <p style={{ fontSize: 13, color: C.muted, margin: "0 0 20px", lineHeight: 1.65 }}>
           {domain
@@ -351,14 +355,14 @@ export default function ProVision({ auditId }: { auditId: string }) {
                       <div style={{ padding: "10px 16px", borderBottom: "1px solid #F3F4F6", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                         <div style={{ fontWeight: 700, fontSize: 12, color: C.navy }}>{vision.domainLabel}</div>
                         <div style={{ display: "flex", gap: 10, fontSize: 10.5, color: C.dim, alignItems: "center" }}>
-                          {["Home", "Features", "Pricing"].map(t => <span key={t}>{t}</span>)}
-                          <span style={{ padding: "3px 10px", border: `1px solid rgba(0,0,0,0.15)`, borderRadius: 4, fontSize: 10, color: C.muted }}>Get started</span>
+                          {(vision.navLinks.length > 0 ? vision.navLinks.slice(0, 3) : ["Home", "Features", "Pricing"]).map((t: string) => <span key={t}>{t}</span>)}
+                          <span style={{ padding: "3px 10px", border: `1px solid rgba(0,0,0,0.15)`, borderRadius: 4, fontSize: 10, color: C.muted }}>{vision.currentCta}</span>
                         </div>
                       </div>
                       <div style={{ padding: "20px 16px", borderBottom: "1px solid #F3F4F6" }}>
                         {vision.h1Fail && (
                           <>
-                            <div style={{ fontSize: 14, fontWeight: 800, color: C.navy, marginBottom: 4, lineHeight: 1.3, fontFamily: "'Unbounded',sans-serif", opacity: 0.5 }}>Powerful tools for modern teams</div>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: C.navy, marginBottom: 4, lineHeight: 1.3, fontFamily: "'Unbounded',sans-serif", opacity: 0.5 }}>{vision.currentH1}</div>
                             <div style={{ fontSize: 10, color: "#DC2626", marginBottom: 10 }}>⚠ Feature-led H1 — no clear user benefit</div>
                           </>
                         )}
