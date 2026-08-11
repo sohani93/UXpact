@@ -1,271 +1,269 @@
 // @ts-nocheck
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getSupabase } from "../lib/supabase";
 import Nav from "../components/Nav";
 import Blobs from "../components/Blobs";
 
 const C = {
   bg: "#EEF1F5", navy: "#0B1C48", forest: "#186132", emerald: "#148C59",
-  mint: "#14D571", violet: "#5B61F4", muted: "#6B7280", dim: "#9CA3AF",
+  mint: "#14D571", violet: "#5B61F4", red: "#DC2626", muted: "#6B7280", dim: "#9CA3AF",
   border: "rgba(0,0,0,0.07)",
 };
 
 const KEYFRAMES = `
 @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-@keyframes pinPop{from{opacity:0;transform:scale(0.5)}to{opacity:1;transform:scale(1)}}
+@keyframes spin{to{transform:rotate(360deg)}}
 button:focus{outline:none}
 `;
 
-/* ── Pin component ──────────────────────────────────────────────── */
-function Pin({ id, label, color, activeId, setActiveId, x, y }: any) {
-  const active = activeId === id;
-  return (
-    <div style={{ position: "absolute", left: x, top: y, zIndex: 10 }}>
-      <div
-        onClick={() => setActiveId(active ? null : id)}
-        style={{
-          width: 20, height: 20, borderRadius: "50%",
-          background: color, cursor: "pointer",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: `0 2px 8px ${color}60`,
-          transition: "transform 0.15s",
-          transform: active ? "scale(1.25)" : "scale(1)",
-          animation: `pinPop 0.3s ease ${id * 0.08}s both`,
-        }}
-      >
-        <span style={{ fontSize: 9, fontWeight: 800, color: "#fff" }}>{id}</span>
-      </div>
-      {active && (
-        <div style={{
-          position: "absolute", top: 24, left: "50%", transform: "translateX(-50%)",
-          background: C.navy, color: "#fff", fontSize: 11, fontWeight: 500,
-          padding: "7px 11px", borderRadius: 8, whiteSpace: "nowrap",
-          zIndex: 20, pointerEvents: "none",
-          boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
-          fontFamily: "'Space Grotesk',sans-serif", lineHeight: 1.4,
-          maxWidth: 220, textAlign: "center",
-        }}>
-          {label}
-          <div style={{
-            position: "absolute", top: -5, left: "50%", transform: "translateX(-50%)",
-            width: 0, height: 0,
-            borderLeft: "5px solid transparent",
-            borderRight: "5px solid transparent",
-            borderBottom: `5px solid ${C.navy}`,
-          }} />
-        </div>
-      )}
-    </div>
-  );
+const ARCHETYPES = ["Hero", "Sage", "Outlaw", "Caregiver", "Creator", "Ruler"] as const;
+
+const ZONE_LABELS: Record<string, string> = {
+  hero: "Hero", features: "Features", social: "Social proof", pricing: "Pricing", cta2: "Bottom CTA",
+};
+const DEFAULT_SECTION_ORDER = ["hero", "features", "social", "pricing", "cta2"];
+
+const GENERATION_STEPS = [
+  "Parsing your site's real structure…",
+  "Reordering sections…",
+  "Rewriting copy for the story…",
+  "Rendering preview…",
+];
+
+function zoneForFix(text: string): string {
+  const t = text.toLowerCase();
+  if (/testimonial|trust|social proof|review|logo/.test(t)) return "social";
+  if (/pricing|price|plan|cost/.test(t)) return "pricing";
+  if (/\bcta\b|bottom cta|call.to.action|objection/.test(t)) return "cta2";
+  return "features";
 }
 
-/* ── Build the vision mockup from real dom_data + LLM story output ── */
-function buildVision(domain: string, findings: any[], domData: any, visionRewrite: { h1?: string; hero_copy?: string; cta?: string } | null, storyFixes: string[] | null) {
-  const failing = findings.filter(f => !f.pass && !f.manual_review);
-  const has = (id: string) => failing.some(f => f.check_id === id);
-
-  const h1Fail     = has("A1.1");
-  const ctaFail    = has("A1.4");
-  const trustFail  = has("A4.1") || has("A4.3");
-  const socialFail = has("A4.3") || has("A4.5");
-  const copyFail   = has("C4.1");
-  const priceFail  = has("A3.3") || has("B2.1");
-
-  const domainLabel = domain.replace(/^https?:\/\//, "").replace(/\/.*/, "");
-  const currentH1 = domData?.h1Text || "Your site headline (audited as-is)";
-  const currentCta = domData?.ctaTexts?.[0] || "Get started";
-
-  // Prefer the LLM's story rewrite; fall back to rule-based synthesis when it's unavailable.
-  const headline = visionRewrite?.h1
-    || (h1Fail ? `The faster way to get results — ${domainLabel.split(".")[0]}` : currentH1);
-
-  const subheadline = visionRewrite?.hero_copy
-    || (copyFail
-      ? "Join thousands of teams who've cut their time-to-result in half. No setup fee. Cancel any time."
-      : "A clear, outcome-focused subheadline that speaks to what visitors actually gain.");
-
-  const ctaLabel = visionRewrite?.cta || (ctaFail ? "Start for free →" : currentCta);
-  const ctaMicro = ctaFail ? "No credit card required · Set up in 2 minutes" : "";
-
-  const annotations: { id: number; label: string; color: string }[] = [];
-  let pinId = 1;
-  const fixQueue = storyFixes ? [...storyFixes] : [];
-  const nextLabel = (fallback: string) => fixQueue.length > 0 ? fixQueue.shift()! : fallback;
-
-  if (h1Fail || visionRewrite?.h1) annotations.push({ id: pinId++, label: nextLabel("H1 rewritten to be benefit-led — focuses on outcome, not features"), color: C.mint });
-  if (ctaFail) annotations.push({ id: pinId++, label: nextLabel("CTA moved above fold with micro-copy to reduce hesitation"), color: C.violet });
-  if (trustFail) annotations.push({ id: pinId++, label: nextLabel("Trust strip inserted below CTA — social proof at the moment of decision"), color: C.mint });
-  if (copyFail) annotations.push({ id: pinId++, label: nextLabel("Feature cards rewritten with outcome language (you, not we)"), color: C.violet });
-  if (socialFail) annotations.push({ id: pinId++, label: nextLabel("Testimonial quote added near CTA — trust proximity"), color: C.mint });
-  if (priceFail) annotations.push({ id: pinId++, label: nextLabel("Pricing anchor copy added to prime value before grid"), color: C.violet });
-  if (annotations.length === 0) {
-    annotations.push({ id: 1, label: "Structure is solid — Vision focuses on copy and trust refinements", color: C.mint });
-  }
-
-  const changes = [
-    (h1Fail || visionRewrite?.h1) && ["Benefit-led H1",        C.mint],
-    ctaFail    && ["CTA above fold",         C.violet],
-    ctaFail    && ["Micro-copy added",        C.mint],
-    trustFail  && ["Trust strip",             C.violet],
-    copyFail   && ["Outcome-led copy",        C.mint],
-    socialFail && ["Testimonial near CTA",    C.violet],
-    priceFail  && ["Pricing anchor copy",     C.mint],
-  ].filter(Boolean) as [string, string][];
-
-  return { headline, subheadline, ctaLabel, ctaMicro, annotations, changes, domainLabel, h1Fail, ctaFail, trustFail, socialFail, copyFail, currentH1, currentCta, navLinks: domData?.navLinks ?? [] };
+function seedCopySelections(visionRewrite: any, storyFixes: string[]): Record<string, string> {
+  const seeded: Record<string, string> = {
+    hero: visionRewrite?.hero_copy || "Rewrite the hero to lead with the visitor's outcome, not the product.",
+  };
+  (storyFixes ?? []).forEach((fix) => {
+    const zone = zoneForFix(fix);
+    if (!seeded[zone]) seeded[zone] = fix;
+  });
+  DEFAULT_SECTION_ORDER.forEach((zone) => {
+    if (!seeded[zone]) seeded[zone] = "Keep this section's current copy.";
+  });
+  return seeded;
 }
 
-/* ── Mockup render ──────────────────────────────────────────────── */
-function VisionMockup({ vision, activeId, setActiveId }: any) {
-  const { headline, subheadline, ctaLabel, ctaMicro, annotations, domainLabel, h1Fail, ctaFail, trustFail, socialFail, copyFail } = vision;
+const GENERATE_VISION_ENDPOINT =
+  import.meta.env.VITE_GENERATE_VISION_ENDPOINT ?? "https://oxminualycvnxofoevjs.supabase.co/functions/v1/generate-vision";
 
-  const pinFor = (id: number) => annotations.find(a => a.id === id);
-
-  return (
-    <div style={{ background: "#fff", borderRadius: 10, overflow: "hidden", border: "1.5px solid rgba(20,213,113,0.25)", boxShadow: "0 0 0 3px rgba(20,213,113,0.06), 0 8px 24px rgba(0,0,0,0.06)", position: "relative" }}>
-
-      {/* Nav */}
-      <div style={{ padding: "10px 16px", borderBottom: "1px solid #F3F4F6", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ fontWeight: 800, fontSize: 12, color: C.navy, fontFamily: "'Unbounded',sans-serif" }}>{domainLabel.split(".")[0].charAt(0).toUpperCase() + domainLabel.split(".")[0].slice(1)}</div>
-        <div style={{ display: "flex", gap: 12, fontSize: 10.5, color: C.dim, alignItems: "center" }}>
-          {["Home", "Features", "Pricing", "Blog"].map(t => <span key={t}>{t}</span>)}
-          <div style={{ padding: "4px 12px", background: "linear-gradient(135deg,#186132,#14D571)", borderRadius: 5, fontSize: 10, fontWeight: 700, color: "#fff" }}>
-            {ctaFail ? "Start free →" : "Get started"}
-          </div>
-        </div>
-      </div>
-
-      {/* Hero */}
-      <div style={{ padding: "22px 18px 18px", borderBottom: "1px solid #F3F4F6", background: "linear-gradient(160deg,rgba(20,213,113,0.03),rgba(255,255,255,0))", position: "relative" }}>
-        {h1Fail && pinFor(1) && (
-          <Pin id={1} label={pinFor(1)!.label} color={pinFor(1)!.color} activeId={activeId} setActiveId={setActiveId} x="calc(100% - 28px)" y={0} />
-        )}
-        <div style={{ fontSize: 15, fontWeight: 800, color: C.navy, marginBottom: 6, lineHeight: 1.3, fontFamily: "'Unbounded',sans-serif", paddingRight: 20 }}>
-          {headline}
-        </div>
-        <div style={{ fontSize: 11, color: C.muted, marginBottom: 14, lineHeight: 1.6 }}>{subheadline}</div>
-
-        {ctaFail && (
-          <div style={{ position: "relative" }}>
-            {pinFor(2) && <Pin id={2} label={pinFor(2)!.label} color={pinFor(2)!.color} activeId={activeId} setActiveId={setActiveId} x="calc(100% - 28px)" y={0} />}
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-              <div style={{ padding: "7px 16px", background: "linear-gradient(135deg,#186132,#14D571)", borderRadius: 6, fontSize: 11.5, fontWeight: 700, color: "#fff", boxShadow: "0 2px 10px rgba(20,140,89,0.3)" }}>
-                {ctaLabel}
-              </div>
-              <div style={{ padding: "6px 14px", border: "1.5px solid #148C59", borderRadius: 6, fontSize: 11, fontWeight: 600, color: "#148C59" }}>
-                See 90-second demo
-              </div>
-            </div>
-            {ctaMicro && <div style={{ fontSize: 10, color: C.dim }}>{ctaMicro}</div>}
-          </div>
-        )}
-
-        {trustFail && (
-          <div style={{ position: "relative", marginTop: ctaFail ? 14 : 0 }}>
-            {pinFor(ctaFail ? 3 : 2) && <Pin id={ctaFail ? 3 : 2} label={pinFor(ctaFail ? 3 : 2)!.label} color={pinFor(ctaFail ? 3 : 2)!.color} activeId={activeId} setActiveId={setActiveId} x="calc(100% - 28px)" y={0} />}
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <div style={{ display: "flex", gap: 4 }}>
-                {[32, 26, 28, 30, 24].map((w, i) => (
-                  <div key={i} style={{ height: 14, width: w, background: "rgba(11,28,72,0.12)", borderRadius: 2 }} />
-                ))}
-              </div>
-              <div style={{ fontSize: 9.5, color: C.dim }}>Trusted by 800+ teams</div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Features */}
-      <div style={{ padding: "14px 18px", borderBottom: "1px solid #F3F4F6", position: "relative" }}>
-        {copyFail && (() => {
-          const ann = annotations.find(a => a.label.includes("outcome language"));
-          return ann ? <Pin id={ann.id} label={ann.label} color={ann.color} activeId={activeId} setActiveId={setActiveId} x="calc(100% - 28px)" y={0} /> : null;
-        })()}
-        <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.1em", color: C.dim, marginBottom: 6 }}>FEATURES</div>
-        <div style={{ fontSize: 12, fontWeight: 700, color: C.navy, marginBottom: 8 }}>
-          {copyFail ? "Built around what you actually need" : "Everything you need"}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-          {(copyFail
-            ? [["You always know what's next", "Real-time clarity"], ["Your team acts faster", "Instant dashboards"], ["No more guesswork", "Outcome reports"]]
-            : [["Real-time dashboards", "We built this for you"], ["Custom reports", "Our team designed it"], ["Collaboration tools", "Built-in features"]]
-          ).map(([h, s], i) => (
-            <div key={i} style={{ padding: 8, background: copyFail ? "rgba(20,213,113,0.04)" : "#F9FAFB", borderRadius: 5, border: `1px solid ${copyFail ? "rgba(20,213,113,0.15)" : "#E5E7EB"}` }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, marginBottom: 2, lineHeight: 1.3 }}>{h}</div>
-              <div style={{ fontSize: 9.5, color: C.dim }}>{s}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Social proof */}
-      {socialFail && (
-        <div style={{ padding: "14px 18px", position: "relative" }}>
-          {(() => {
-            const ann = annotations.find(a => a.label.includes("Testimonial"));
-            return ann ? <Pin id={ann.id} label={ann.label} color={ann.color} activeId={activeId} setActiveId={setActiveId} x="calc(100% - 28px)" y={0} /> : null;
-          })()}
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.navy, marginBottom: 8 }}>What our customers say</div>
-          <div style={{ padding: "10px 12px", borderRadius: 6, background: "rgba(20,213,113,0.05)", border: "1px solid rgba(20,213,113,0.15)", fontSize: 11, color: C.navy, lineHeight: 1.55, fontStyle: "italic" }}>
-            "Exactly what we needed. Saw results in the first week."
-            <div style={{ fontSize: 10, color: C.dim, marginTop: 4, fontStyle: "normal" }}>— Head of Growth, verified customer</div>
-          </div>
-        </div>
-      )}
-
-      {/* Vision badge */}
-      <div style={{ position: "absolute", bottom: 10, right: 12, display: "flex", alignItems: "center", gap: 5, background: "rgba(20,213,113,0.12)", border: "1px solid rgba(20,213,113,0.25)", borderRadius: 20, padding: "3px 10px" }}>
-        <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.mint }} />
-        <span style={{ fontSize: 9, fontWeight: 700, color: C.emerald }}>Vision applied</span>
-      </div>
-    </div>
-  );
-}
-
-/* ── Main page ──────────────────────────────────────────────────── */
 export default function ProVision({ auditId }: { auditId: string }) {
-  const [view, setView] = useState<"vision" | "split">("vision");
-  const [activeId, setActiveId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [vision, setVision] = useState<ReturnType<typeof buildVision> | null>(null);
-  const [domain, setDomain] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [auditData, setAuditData] = useState<any>(null);
+  const [versions, setVersions] = useState<any[]>([]);
+
+  const [archetype, setArchetype] = useState<string>("");
+  const [sectionOrder, setSectionOrder] = useState<string[]>(DEFAULT_SECTION_ORDER);
+  const [copySelections, setCopySelections] = useState<Record<string, string>>({});
+
+  const [generating, setGenerating] = useState(false);
+  const [genStepIndex, setGenStepIndex] = useState(0);
+  const [generatedHtml, setGeneratedHtml] = useState<string | null>(null);
+  const [genError, setGenError] = useState<string | null>(null);
+  const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
+
+  const stepTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     async function load() {
-      // Check sessionStorage first (populated by the audit engine on completion)
-      const cached = sessionStorage.getItem(`audit:${auditId}`);
-      if (cached) {
-        try {
-          const c = JSON.parse(cached);
-          const d = c.domain ?? "yoursite.com";
-          const rawFindings = (c.findings ?? []).map((f: any) => ({
-            check_id: f.id, pass: f.pass, manual_review: false, name: f.name,
-          }));
-          setDomain(d);
-          setVision(buildVision(d, rawFindings, c.domData ?? null, c.visionRewrite ?? null, c.storyFixes ?? null));
-          setLoading(false);
-          return;
-        } catch {}
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const supabase = getSupabase();
+        const [{ data: audit, error: auditErr }, { data: versionRows }] = await Promise.all([
+          supabase
+            .from("audits")
+            .select("domain,dom_data,vision_rewrite,story_fixes,current_archetype,target_archetype,raw_html")
+            .eq("id", auditId)
+            .maybeSingle(),
+          supabase
+            .from("vision_versions")
+            .select("*")
+            .eq("audit_id", auditId)
+            .order("version_number", { ascending: true }),
+        ]);
+        if (auditErr) throw new Error(auditErr.message);
+        if (!audit) throw new Error("Audit not found.");
+        setAuditData(audit);
+        setVersions(versionRows ?? []);
+        setArchetype(audit.target_archetype || "Hero");
+        setCopySelections(seedCopySelections(audit.vision_rewrite, audit.story_fixes ?? []));
+      } catch (err) {
+        setLoadError(err instanceof Error ? err.message : "Failed to load this audit.");
+      } finally {
+        setLoading(false);
       }
-
-      // Fallback: fetch from Supabase
-      const supabase = getSupabase();
-      const [{ data: auditData }, { data: findingsData }] = await Promise.all([
-        supabase.from("audits").select("domain,score,dom_data,vision_rewrite,story_fixes").eq("id", auditId).maybeSingle(),
-        supabase.from("audit_findings").select("check_id,pass,manual_review,name").eq("audit_id", auditId),
-      ]);
-      const d = auditData?.domain ?? "yoursite.com";
-      setDomain(d);
-      setVision(buildVision(d, findingsData ?? [], auditData?.dom_data ?? null, auditData?.vision_rewrite ?? null, auditData?.story_fixes ?? null));
-      setLoading(false);
     }
     load();
   }, [auditId]);
+
+  useEffect(() => {
+    document.title = auditData?.domain ? `UXpact Vision — ${auditData.domain}` : "UXpact Vision";
+  }, [auditData?.domain]);
 
   const goBack = () => {
     window.history.pushState({}, "", `/report/${auditId}`);
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
+
+  const moveSection = (index: number, dir: -1 | 1) => {
+    setSectionOrder((order) => {
+      const next = [...order];
+      const target = index + dir;
+      if (target < 0 || target >= next.length) return order;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  const startStagedSteps = () => {
+    setGenStepIndex(0);
+    let i = 0;
+    stepTimerRef.current = window.setInterval(() => {
+      i = Math.min(i + 1, GENERATION_STEPS.length - 1);
+      setGenStepIndex(i);
+    }, 1400);
+  };
+  const stopStagedSteps = () => {
+    if (stepTimerRef.current) {
+      window.clearInterval(stepTimerRef.current);
+      stepTimerRef.current = null;
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!auditData?.raw_html) return;
+    setGenerating(true);
+    setGenError(null);
+    startStagedSteps();
+    try {
+      const response = await fetch(GENERATE_VISION_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          auditId,
+          archetype,
+          sectionOrder,
+          copySelections,
+          rawHtml: auditData.raw_html,
+        }),
+      });
+      const json = await response.json();
+      if (!response.ok || json.error) {
+        setGenError(json.message || "Generation failed. Try again.");
+        setGeneratedHtml(null);
+      } else {
+        setGeneratedHtml(json.html);
+        setActiveVersionId(null);
+      }
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : "Couldn't reach the Vision service.");
+      setGeneratedHtml(null);
+    } finally {
+      stopStagedSteps();
+      setGenerating(false);
+    }
+  };
+
+  const handleSaveVersion = async () => {
+    if (!generatedHtml) return;
+    const supabase = getSupabase();
+    const nextVersionNumber = (versions[versions.length - 1]?.version_number ?? 0) + 1;
+    const { data, error } = await supabase
+      .from("vision_versions")
+      .insert({
+        audit_id: auditId,
+        version_number: nextVersionNumber,
+        archetype,
+        section_order: sectionOrder,
+        copy_selections: copySelections,
+        html: generatedHtml,
+      })
+      .select("*")
+      .single();
+    if (!error && data) {
+      setVersions((v) => [...v, data]);
+      setActiveVersionId(data.id);
+    }
+  };
+
+  const handleSelectVersion = (v: any) => {
+    setGeneratedHtml(v.html);
+    setActiveVersionId(v.id);
+    setGenError(null);
+    setArchetype(v.archetype || archetype);
+    if (Array.isArray(v.section_order) && v.section_order.length) setSectionOrder(v.section_order);
+    if (v.copy_selections && typeof v.copy_selections === "object") setCopySelections(v.copy_selections);
+  };
+
+  // ── Guard states ──────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ fontSize: 13, color: C.dim, fontFamily: "'Space Grotesk',sans-serif" }}>Loading…</span>
+      </div>
+    );
+  }
+
+  if (loadError || !auditData) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.bg, position: "relative" }}>
+        <Blobs />
+        <Nav />
+        <div style={{ maxWidth: 560, margin: "80px auto 0", padding: "0 28px", textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 14 }}>⚠️</div>
+          <div style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 16, fontWeight: 700, color: C.red, marginBottom: 8 }}>Couldn't load this audit</div>
+          <div style={{ fontSize: 13, color: C.muted, marginBottom: 20 }}>{loadError}</div>
+          <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: C.violet, fontFamily: "'Space Grotesk',sans-serif" }}>← Back to report</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!auditData.vision_rewrite) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.bg, position: "relative" }}>
+        <Blobs />
+        <Nav />
+        <div style={{ maxWidth: 560, margin: "80px auto 0", padding: "0 28px", textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 14 }}>🔒</div>
+          <div style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 8 }}>Vision sandbox needs the Claude API key</div>
+          <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 20 }}>
+            This audit doesn't have story narration yet, which the Vision sandbox builds on. Once the Claude API key is configured, re-run the audit and this page will unlock automatically.
+          </div>
+          <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: C.violet, fontFamily: "'Space Grotesk',sans-serif" }}>← Back to report</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!auditData.raw_html) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.bg, position: "relative" }}>
+        <Blobs />
+        <Nav />
+        <div style={{ maxWidth: 560, margin: "80px auto 0", padding: "0 28px", textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 14 }}>🗂️</div>
+          <div style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 8 }}>This audit predates the Vision sandbox</div>
+          <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 20 }}>
+            This audit ran before raw HTML capture was added, so there's nothing for the sandbox to rebuild. Run a fresh audit on this URL to use Vision.
+          </div>
+          <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: C.violet, fontFamily: "'Space Grotesk',sans-serif" }}>← Back to report</button>
+        </div>
+      </div>
+    );
+  }
+
+  const domainLabel = (auditData.domain || "yoursite.com").replace(/^https?:\/\//, "");
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Space Grotesk',sans-serif", position: "relative" }}>
@@ -273,131 +271,162 @@ export default function ProVision({ auditId }: { auditId: string }) {
       <Blobs />
       <Nav />
 
-      <div style={{ maxWidth: 1060, margin: "0 auto", padding: "0 28px 60px" }}>
-
-        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: C.muted, fontFamily: "'Space Grotesk',sans-serif", padding: 0, marginBottom: 24 }}>
+      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 28px 60px" }}>
+        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: C.muted, fontFamily: "'Space Grotesk',sans-serif", padding: 0, marginBottom: 20 }}>
           ← Back to report
         </button>
 
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-          <h1 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 24, fontWeight: 700, color: C.navy, margin: 0, letterSpacing: "-0.5px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+          <h1 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 26, fontWeight: 700, color: C.navy, margin: 0, letterSpacing: "-0.5px" }}>
             UXpact{" "}
             <span style={{ background: "linear-gradient(90deg,#186132,#14D571)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
               Vision
             </span>
           </h1>
-          <div style={{ fontSize: 9, fontWeight: 700, background: "rgba(91,97,244,0.1)", color: C.violet, borderRadius: 20, padding: "4px 12px", letterSpacing: "0.04em" }}>Free during beta</div>
+          <div style={{ fontSize: 9, fontWeight: 700, background: "rgba(91,97,244,0.1)", color: C.violet, borderRadius: 20, padding: "4px 12px", letterSpacing: "0.04em" }}>FREE DURING BETA</div>
         </div>
-        <p style={{ fontSize: 13, color: C.muted, margin: "0 0 20px", lineHeight: 1.65 }}>
-          {domain
-            ? `Every audit finding from ${domain.replace(/^https?:\/\//, "")} applied — rewritten copy, repositioned CTAs, trust signals placed where they convert. Click numbered pins to see what changed and why.`
-            : "Every audit finding applied — rewritten copy, repositioned CTAs, trust signals placed where they convert."}
+        <p style={{ fontSize: 13, color: C.muted, margin: "0 0 24px", lineHeight: 1.65, maxWidth: 640 }}>
+          Rebuild {domainLabel} for real — pick a story direction, decide what changes, and generate a full working version of your actual site.
         </p>
 
-        {loading ? (
-          <div style={{ padding: 40, textAlign: "center", color: C.dim, fontSize: 13 }}>Building vision…</div>
-        ) : !vision ? (
-          <div style={{ padding: 40, textAlign: "center", color: C.dim, fontSize: 13 }}>Could not load audit data.</div>
-        ) : (
-          <>
-            {/* Change chips */}
-            {vision.changes.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 18 }}>
-                {vision.changes.map(([t, c]) => (
-                  <div key={t} style={{ fontSize: 11, fontWeight: 600, color: c, background: `${c}18`, border: `1px solid ${c}30`, borderRadius: 5, padding: "4px 10px" }}>{t}</div>
-                ))}
-              </div>
-            )}
-
-            {/* Annotation legend */}
-            {vision.annotations.length > 0 && (
-              <div style={{ background: "rgba(255,255,255,0.5)", backdropFilter: "blur(16px)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.7)", padding: "12px 16px", marginBottom: 18, display: "flex", flexWrap: "wrap", gap: 10 }}>
-                {vision.annotations.map(a => (
-                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setActiveId(activeId === a.id ? null : a.id)}>
-                    <div style={{ width: 18, height: 18, borderRadius: "50%", background: a.color, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <span style={{ fontSize: 8, fontWeight: 800, color: "#fff" }}>{a.id}</span>
-                    </div>
-                    <span style={{ fontSize: 11, color: activeId === a.id ? C.navy : C.muted, fontWeight: activeId === a.id ? 600 : 400 }}>{a.label}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* View toggle */}
-            <div style={{ display: "inline-flex", borderRadius: 8, border: "1px solid rgba(0,0,0,0.08)", overflow: "hidden", marginBottom: 20 }}>
-              {(["vision", "split"] as const).map(v => (
-                <button key={v} onClick={() => setView(v)}
-                  style={{ padding: "8px 20px", fontSize: 12, fontWeight: view === v ? 700 : 400, color: view === v ? C.emerald : C.dim, background: view === v ? "rgba(20,213,113,0.1)" : "rgba(255,255,255,0.7)", border: "none", cursor: "pointer", transition: "all 0.2s", fontFamily: "'Space Grotesk',sans-serif" }}>
-                  {v === "vision" ? "Vision ✦" : "Side by side"}
-                </button>
+        <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 20, alignItems: "flex-start" }}>
+          {/* ── Left rail — controls ──────────────────────────────── */}
+          <div style={{
+            background: "rgba(255,255,255,0.5)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+            borderRadius: 14, border: "1px solid rgba(255,255,255,0.7)", boxShadow: "0 8px 32px rgba(0,0,0,0.05)",
+            padding: "18px 18px 20px", position: "sticky", top: 20,
+          }}>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.dim, marginBottom: 10 }}>Story direction</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 20 }}>
+              {ARCHETYPES.map((a) => (
+                <button key={a} onClick={() => setArchetype(a)} style={{
+                  padding: "6px 12px", borderRadius: 20, fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+                  fontFamily: "'Space Grotesk',sans-serif", transition: "all 0.15s",
+                  background: archetype === a ? "linear-gradient(135deg,#186132,#14D571)" : "rgba(0,0,0,0.05)",
+                  color: archetype === a ? "#fff" : C.muted,
+                  border: "none",
+                }}>{a}</button>
               ))}
             </div>
 
-            {/* Mockup */}
-            <div style={{ animation: "fadeUp 0.35s ease both" }}>
-              {view === "vision" && (
-                <div style={{ maxWidth: 640 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.mint, marginBottom: 8 }}>Vision ✦ — all findings applied</div>
-                  <VisionMockup vision={vision} activeId={activeId} setActiveId={setActiveId} />
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.dim, marginBottom: 10 }}>Section order</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20 }}>
+              {sectionOrder.map((zone, i) => (
+                <div key={zone} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.6)", border: `1px solid ${C.border}`, borderRadius: 8, padding: "7px 10px" }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: C.navy, flex: 1 }}>{ZONE_LABELS[zone] ?? zone}</span>
+                  <button onClick={() => moveSection(i, -1)} disabled={i === 0} style={{ background: "none", border: "none", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.3 : 1, fontSize: 13, color: C.muted, padding: "0 3px" }}>↑</button>
+                  <button onClick={() => moveSection(i, 1)} disabled={i === sectionOrder.length - 1} style={{ background: "none", border: "none", cursor: i === sectionOrder.length - 1 ? "default" : "pointer", opacity: i === sectionOrder.length - 1 ? 0.3 : 1, fontSize: 13, color: C.muted, padding: "0 3px" }}>↓</button>
                 </div>
-              )}
-              {view === "split" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.dim, marginBottom: 8 }}>Current structure</div>
-                    {/* Static representation of common problem patterns */}
-                    <div style={{ background: "#fff", borderRadius: 10, overflow: "hidden", border: "1px solid rgba(0,0,0,0.06)" }}>
-                      <div style={{ padding: "10px 16px", borderBottom: "1px solid #F3F4F6", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <div style={{ fontWeight: 700, fontSize: 12, color: C.navy }}>{vision.domainLabel}</div>
-                        <div style={{ display: "flex", gap: 10, fontSize: 10.5, color: C.dim, alignItems: "center" }}>
-                          {(vision.navLinks.length > 0 ? vision.navLinks.slice(0, 3) : ["Home", "Features", "Pricing"]).map((t: string) => <span key={t}>{t}</span>)}
-                          <span style={{ padding: "3px 10px", border: `1px solid rgba(0,0,0,0.15)`, borderRadius: 4, fontSize: 10, color: C.muted }}>{vision.currentCta}</span>
-                        </div>
-                      </div>
-                      <div style={{ padding: "20px 16px", borderBottom: "1px solid #F3F4F6" }}>
-                        {vision.h1Fail && (
-                          <>
-                            <div style={{ fontSize: 14, fontWeight: 800, color: C.navy, marginBottom: 4, lineHeight: 1.3, fontFamily: "'Unbounded',sans-serif", opacity: 0.5 }}>{vision.currentH1}</div>
-                            <div style={{ fontSize: 10, color: "#DC2626", marginBottom: 10 }}>⚠ Feature-led H1 — no clear user benefit</div>
-                          </>
-                        )}
-                        {vision.ctaFail && (
-                          <>
-                            <div style={{ fontSize: 10, color: C.dim, marginBottom: 10, lineHeight: 1.5 }}>A paragraph of copy before any call to action appears below...</div>
-                            <div style={{ height: 28, width: "40%", background: "rgba(0,0,0,0.07)", borderRadius: 4, marginBottom: 4 }} />
-                            <div style={{ fontSize: 10, color: "#DC2626" }}>⚠ CTA pushed below fold on mobile</div>
-                          </>
-                        )}
-                        {!vision.h1Fail && !vision.ctaFail && (
-                          <div style={{ fontSize: 11, color: C.dim, lineHeight: 1.6 }}>Current page structure — no critical hero issues detected by the audit engine.</div>
-                        )}
-                      </div>
-                      {vision.trustFail && (
-                        <div style={{ padding: "12px 16px" }}>
-                          <div style={{ background: "#FFF4E6", border: "1px solid #FFD580", borderRadius: 4, padding: "8px 10px", fontSize: 10, color: "#92400E" }}>
-                            ⚠ No social proof near CTA — trust signals missing at the moment of decision
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.mint, marginBottom: 8 }}>Vision ✦ — all findings applied</div>
-                    <VisionMockup vision={vision} activeId={activeId} setActiveId={setActiveId} />
-                  </div>
-                </div>
-              )}
+              ))}
             </div>
 
-            {/* Note */}
-            <div style={{ marginTop: 24, padding: "12px 16px", background: "rgba(91,97,244,0.05)", border: "1px solid rgba(91,97,244,0.12)", borderRadius: 8 }}>
-              <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6 }}>
-                <strong style={{ color: C.violet }}>About Vision:</strong> This mockup is built directly from your audit results — each change shown corresponds to a failing check. The copy, CTAs, and structure reflect UX/CRO best practices applied to {domain.replace(/^https?:\/\//, "") || "your site"}. It's a strategic wireframe, not a pixel-perfect redesign.
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.dim, marginBottom: 10 }}>What to change</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+              {sectionOrder.map((zone) => (
+                <div key={zone}>
+                  <div style={{ fontSize: 11, fontWeight: 650, color: C.navy, marginBottom: 4 }}>{ZONE_LABELS[zone] ?? zone}</div>
+                  <textarea
+                    value={copySelections[zone] ?? ""}
+                    onChange={(e) => setCopySelections((c) => ({ ...c, [zone]: e.target.value }))}
+                    rows={2}
+                    style={{
+                      width: "100%", resize: "vertical", fontSize: 11.5, fontFamily: "'Space Grotesk',sans-serif",
+                      padding: "7px 9px", borderRadius: 7, border: `1px solid ${C.border}`, background: "rgba(255,255,255,0.7)",
+                      color: "#374151", lineHeight: 1.5, boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={handleGenerate}
+              disabled={generating}
+              style={{
+                width: "100%", padding: "11px 0", borderRadius: 10, border: "none",
+                background: generating ? "rgba(24,97,50,0.4)" : "linear-gradient(135deg,#186132,#14D571)",
+                color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "'Unbounded',sans-serif",
+                cursor: generating ? "default" : "pointer", boxShadow: generating ? "none" : "0 4px 18px rgba(20,140,89,0.3)",
+              }}
+            >
+              {generating ? "Generating…" : generatedHtml ? "Regenerate" : "Generate"}
+            </button>
+          </div>
+
+          {/* ── Right — output ─────────────────────────────────────── */}
+          <div>
+            {versions.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                {versions.map((v) => (
+                  <button key={v.id} onClick={() => handleSelectVersion(v)} style={{
+                    padding: "5px 12px", borderRadius: 16, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                    fontFamily: "'Space Grotesk',sans-serif",
+                    background: activeVersionId === v.id ? "rgba(91,97,244,0.14)" : "rgba(255,255,255,0.6)",
+                    color: activeVersionId === v.id ? C.violet : C.muted,
+                    border: `1px solid ${activeVersionId === v.id ? "rgba(91,97,244,0.35)" : C.border}`,
+                  }}>v{v.version_number} · {v.archetype}</button>
+                ))}
+              </div>
+            )}
+
+            <div style={{
+              borderRadius: 14, overflow: "hidden", background: "#fff",
+              border: "1px solid rgba(255,255,255,0.7)", boxShadow: "0 8px 32px rgba(0,0,0,0.06)",
+              minHeight: 520, display: "flex", flexDirection: "column",
+            }}>
+              <div style={{ background: "rgba(0,0,0,0.03)", borderBottom: `1px solid ${C.border}`, padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", gap: 5 }}>
+                  {["#ef4444", "#f59e0b", "#22c55e"].map((c) => <div key={c} style={{ width: 8, height: 8, borderRadius: "50%", background: c, opacity: 0.45 }} />)}
+                </div>
+                <div style={{ flex: 1, background: "rgba(0,0,0,0.04)", borderRadius: 5, padding: "3px 10px", fontSize: 11, color: C.dim, textAlign: "center" }}>
+                  https://{domainLabel}
+                </div>
+                {generatedHtml && !generating && (
+                  <button onClick={handleSaveVersion} style={{
+                    padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer",
+                    background: "rgba(20,140,89,0.12)", color: C.emerald, fontSize: 11, fontWeight: 700,
+                    fontFamily: "'Space Grotesk',sans-serif",
+                  }}>Save version</button>
+                )}
+              </div>
+
+              <div style={{ flex: 1, position: "relative" }}>
+                {generating ? (
+                  <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: "50%", border: "3px solid rgba(20,140,89,0.15)", borderTopColor: C.emerald, animation: "spin 0.8s linear infinite" }} />
+                    <div style={{ fontSize: 13, color: C.navy, fontWeight: 600, fontFamily: "'Space Grotesk',sans-serif" }}>{GENERATION_STEPS[genStepIndex]}</div>
+                  </div>
+                ) : genError ? (
+                  <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, padding: 32, textAlign: "center" }}>
+                    <div style={{ fontSize: 26 }}>⚠️</div>
+                    <div style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 13, fontWeight: 700, color: C.red }}>Couldn't generate this version</div>
+                    <div style={{ fontSize: 12, color: C.muted, maxWidth: 360, lineHeight: 1.6 }}>{genError}</div>
+                    <button onClick={handleGenerate} style={{
+                      marginTop: 6, padding: "8px 18px", borderRadius: 8, border: "none", cursor: "pointer",
+                      background: "linear-gradient(135deg,#186132,#14D571)", color: "#fff", fontSize: 12, fontWeight: 700,
+                      fontFamily: "'Space Grotesk',sans-serif",
+                    }}>Try again</button>
+                  </div>
+                ) : generatedHtml ? (
+                  <iframe
+                    title="Vision preview"
+                    srcDoc={generatedHtml}
+                    sandbox="allow-same-origin allow-scripts"
+                    style={{ width: "100%", height: 640, border: "none", display: "block" }}
+                  />
+                ) : (
+                  <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 32, textAlign: "center" }}>
+                    <div style={{ fontSize: 26 }}>✦</div>
+                    <div style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 13, fontWeight: 700, color: C.navy }}>Ready when you are</div>
+                    <div style={{ fontSize: 12, color: C.muted, maxWidth: 320, lineHeight: 1.6 }}>
+                      Pick a story direction, adjust the section order and copy, then generate a full rebuild of {domainLabel}.
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-          </>
-        )}
+          </div>
+        </div>
       </div>
     </div>
   );

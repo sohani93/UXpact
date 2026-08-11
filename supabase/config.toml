@@ -2,3 +2,6 @@ project_id = "oxminualycvnxofoevjs"
 
 [functions.run-audit]
 verify_jwt = false
+
+[functions.generate-vision]
+verify_jwt = false
