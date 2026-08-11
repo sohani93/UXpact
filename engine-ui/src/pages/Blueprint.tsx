@@ -55,6 +55,49 @@ function normalizeZone(z: string): string {
   return ZONE_MAP[(z ?? "").toLowerCase().trim()] ?? "features";
 }
 
+const ZONE_LABELS: Record<string, string> = {
+  features: "Features", social: "Customers", pricing: "Pricing", cta2: "Bottom CTA", nav: "Nav",
+};
+
+const TAG_STYLES: Record<"Rewritten" | "Added" | "Moved", { bg: string; color: string }> = {
+  Rewritten: { bg: "#EEF2FF", color: "#3730A3" },
+  Added: { bg: "#F0FDF4", color: "#065F46" },
+  Moved: { bg: "#FEF3C7", color: "#92400E" },
+};
+
+function classifyFix(text: string): "Rewritten" | "Added" | "Moved" {
+  const t = text.toLowerCase();
+  if (/\badd(ed|ing)?\b|\binsert/.test(t)) return "Added";
+  if (/\bmove(d)?\b|\breposition|\babove the fold\b/.test(t)) return "Moved";
+  return "Rewritten";
+}
+
+function zoneForFix(text: string): string {
+  const t = text.toLowerCase();
+  if (/testimonial|trust|social proof|review|logo/.test(t)) return "social";
+  if (/pricing|price|plan|cost/.test(t)) return "pricing";
+  if (/\bcta\b|bottom cta|call.to.action|objection/.test(t)) return "cta2";
+  return "features";
+}
+
+function buildZoneChanges(storyFixes: string[]): Record<string, { tag: "Rewritten" | "Added" | "Moved"; note: string }> {
+  const changes: Record<string, { tag: "Rewritten" | "Added" | "Moved"; note: string }> = {};
+  storyFixes.forEach((fix) => {
+    const zone = zoneForFix(fix);
+    if (!changes[zone]) changes[zone] = { tag: classifyFix(fix), note: fix };
+  });
+  return changes;
+}
+
+function ChangeTag({ tag }: { tag: "Rewritten" | "Added" | "Moved" }) {
+  const s = TAG_STYLES[tag];
+  return (
+    <div style={{ position: "absolute", top: 12, right: 14, fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: s.bg, color: s.color, fontFamily: "'Space Grotesk', sans-serif" }}>
+      {tag}
+    </div>
+  );
+}
+
 // ── Pill ──────────────────────────────────────────────────────────────
 function Pill({ text, v }) {
   const s = v === "green"
@@ -402,6 +445,7 @@ function PulseFooter({ totalRecovered = 0 }: { totalRecovered?: number }) {
 // ── Main ──────────────────────────────────────────────────────────────
 export default function ConversionBlueprint({ auditId }: { auditId: string }) {
   const [activeId, setActiveId] = useState(null);
+  const [facView, setFacView] = useState<"current" | "restructured">("current");
   const [auditData, setAuditData] = useState<any>(null);
   const [findings, setFindings] = useState<any[]>([]);
   const [recovered, setRecovered] = useState<Record<string, boolean>>({});
@@ -460,6 +504,17 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
   const realH2Texts: string[] = domData?.h2Texts ?? [];
   const realParagraphs: string[] = domData?.paragraphTexts ?? [];
   const realDomain = auditData?.domain || "yoursite.com";
+
+  const visionRewrite = auditData?.vision_rewrite ?? null;
+  const storyFixesList: string[] = auditData?.story_fixes ?? [];
+  const targetArchetype = auditData?.target_archetype ?? null;
+  const zoneChanges = visionRewrite ? buildZoneChanges(storyFixesList) : {};
+  const whatChangedItems = visionRewrite
+    ? [
+        { zone: "Hero", tag: "Rewritten" as const, note: visionRewrite.hero_copy || visionRewrite.h1 || "Hero rewritten for target archetype." },
+        ...Object.entries(zoneChanges).map(([zone, c]) => ({ zone: ZONE_LABELS[zone] ?? zone, tag: c.tag, note: c.note })),
+      ]
+    : [];
 
   const displayFindings = findings
     .filter((f) => !f.pass && !f.manual_review)
@@ -558,24 +613,53 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
               return pills.map((p, i) => <Pill key={i} text={p.text} v={p.v} />);
             })()}
           </div>
-          {/* Severity counts — right side */}
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            {[
-              { sev: "Critical", count: activeFindings.filter(f => f.sev === "Critical").length, dot: "#EF4444" },
-              { sev: "Major",    count: activeFindings.filter(f => f.sev === "Major").length,    dot: "#F59E0B" },
-              { sev: "Minor",    count: activeFindings.filter(f => f.sev === "Minor").length,    dot: "#EAB308" },
-            ].map(({ sev, count, dot }) => (
-              <div key={sev} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <div style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flexShrink: 0 }} />
-                <span style={{ fontSize: 12, fontWeight: 600, color: C.navy, fontFamily: "'Space Grotesk', sans-serif" }}>{count}</span>
-                <span style={{ fontSize: 12, fontWeight: 500, color: C.navy, fontFamily: "'Space Grotesk', sans-serif" }}>{sev}</span>
+          {/* Severity counts + Current/Restructured toggle — right side */}
+          <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              {[
+                { sev: "Critical", count: activeFindings.filter(f => f.sev === "Critical").length, dot: "#EF4444" },
+                { sev: "Major",    count: activeFindings.filter(f => f.sev === "Major").length,    dot: "#F59E0B" },
+                { sev: "Minor",    count: activeFindings.filter(f => f.sev === "Minor").length,    dot: "#EAB308" },
+              ].map(({ sev, count, dot }) => (
+                <div key={sev} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: C.navy, fontFamily: "'Space Grotesk', sans-serif" }}>{count}</span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: C.navy, fontFamily: "'Space Grotesk', sans-serif" }}>{sev}</span>
+                </div>
+              ))}
+            </div>
+            {visionRewrite && (
+              <div style={{ display: "flex", background: "rgba(0,0,0,0.05)", borderRadius: 8, padding: 3, gap: 2 }}>
+                {(["current", "restructured"] as const).map(v => (
+                  <button
+                    key={v}
+                    onClick={() => { setFacView(v); setActiveId(null); }}
+                    style={{
+                      fontFamily: "'Space Grotesk', sans-serif",
+                      fontSize: 11, fontWeight: 600,
+                      padding: "5px 13px", borderRadius: 6, border: "none",
+                      cursor: "pointer", transition: "all 0.18s",
+                      background: facView === v
+                        ? v === "restructured" ? "linear-gradient(135deg, #186132, #148C59)" : "#fff"
+                        : "transparent",
+                      color: facView === v ? (v === "restructured" ? "#fff" : C.navy) : C.muted,
+                      boxShadow: facView === v && v === "current" ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
+                    }}
+                  >
+                    {v === "current" ? "Current" : "Restructured"}
+                  </button>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         </div>
         {/* Hint — right-aligned, directly below severity row, zero top gap */}
         <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 28px 12px", display: "flex", justifyContent: "flex-end" }}>
-          <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>Click a pin to see the fix + AI prompt ({activeFindings.length} findings)</span>
+          <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>
+            {facView === "restructured"
+              ? `Sections restructured for ${targetArchetype ?? "your target"} archetype`
+              : `Click a pin to see the fix + AI prompt (${activeFindings.length} findings)`}
+          </span>
         </div>
 
         {/* ── Two-pane ─────────────────────────────────────────────── */}
@@ -619,22 +703,26 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
 
             {/* HERO */}
             <FacSection active={activeZone === "hero"} style={{ textAlign: "center", padding: "44px 48px 36px", background: "linear-gradient(180deg, rgba(209,250,229,0.1) 0%, transparent 100%)" }}>
+              {facView === "restructured" && visionRewrite && <ChangeTag tag="Rewritten" />}
               <div style={{ fontSize: 27, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded', sans-serif", letterSpacing: "-0.5px", lineHeight: 1.25, marginBottom: 12 }}>
-                {realH1}
+                {facView === "restructured" && visionRewrite ? visionRewrite.h1 : realH1}
               </div>
               <div style={{ fontSize: 13.5, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 22, maxWidth: 420, margin: "0 auto 22px" }}>
-                {realParagraphs[0] ? realParagraphs[0].slice(0, 120) : "Track, measure, and optimise your product with real-time data."}
+                {facView === "restructured" && visionRewrite
+                  ? visionRewrite.hero_copy
+                  : realParagraphs[0] ? realParagraphs[0].slice(0, 120) : "Track, measure, and optimise your product with real-time data."}
               </div>
               <div style={{ display: "flex", justifyContent: "center" }}>
                 <div style={{ padding: "9px 26px", background: "linear-gradient(135deg, #186132, #148C59)", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif" }}>
-                  {realCtaTexts[0] || "Get Started"}
+                  {facView === "restructured" && visionRewrite ? visionRewrite.cta : (realCtaTexts[0] || "Get Started")}
                 </div>
               </div>
-              <PinRow zone="hero" {...pinProps} />
+              {facView === "current" && <PinRow zone="hero" {...pinProps} />}
             </FacSection>
 
             {/* FEATURES */}
             <FacSection active={activeZone === "features"}>
+              {facView === "restructured" && zoneChanges.features && <ChangeTag tag={zoneChanges.features.tag} />}
               <FacLabel t="Features" />
               <FacH2>Everything you need to understand your users</FacH2>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 11, marginTop: 14 }}>
@@ -652,11 +740,12 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
                   </div>
                 ))}
               </div>
-              <PinRow zone="features" {...pinProps} />
+              {facView === "current" && <PinRow zone="features" {...pinProps} />}
             </FacSection>
 
             {/* SOCIAL PROOF */}
             <FacSection active={activeZone === "social"} style={{ background: "rgba(224,231,255,0.07)" }}>
+              {facView === "restructured" && zoneChanges.social && <ChangeTag tag={zoneChanges.social.tag} />}
               <FacLabel t="Customers" />
               <FacH2>Trusted by teams at leading companies</FacH2>
               <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 14 }}>
@@ -664,14 +753,21 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
                   <div key={i} style={{ width: w, height: 26, background: "rgba(0,0,0,0.06)", borderRadius: 5 }} />
                 ))}
               </div>
-              <div style={{ marginTop: 12, padding: "10px 13px", background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.18)", borderRadius: 8 }}>
-                <span style={{ fontSize: 11.5, color: "#92400E", fontFamily: "'Space Grotesk', sans-serif" }}>No testimonial quotes or outcome data detected in this section.</span>
-              </div>
-              <PinRow zone="social" {...pinProps} />
+              {facView === "restructured" && zoneChanges.social ? (
+                <div style={{ marginTop: 12, padding: "12px 14px", background: "rgba(209,250,229,0.2)", border: "1px solid rgba(20,140,89,0.15)", borderRadius: 8 }}>
+                  <span style={{ fontSize: 12, color: C.navy, fontFamily: "'Space Grotesk', sans-serif", fontStyle: "italic", lineHeight: 1.6 }}>{zoneChanges.social.note}</span>
+                </div>
+              ) : (
+                <div style={{ marginTop: 12, padding: "10px 13px", background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.18)", borderRadius: 8 }}>
+                  <span style={{ fontSize: 11.5, color: "#92400E", fontFamily: "'Space Grotesk', sans-serif" }}>No testimonial quotes or outcome data detected in this section.</span>
+                </div>
+              )}
+              {facView === "current" && <PinRow zone="social" {...pinProps} />}
             </FacSection>
 
             {/* PRICING */}
             <FacSection active={activeZone === "pricing"}>
+              {facView === "restructured" && zoneChanges.pricing && <ChangeTag tag={zoneChanges.pricing.tag} />}
               <FacLabel t="Pricing" />
               <FacH2>Simple, transparent pricing</FacH2>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginTop: 14 }}>
@@ -693,19 +789,22 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
                   </div>
                 ))}
               </div>
-              <PinRow zone="pricing" {...pinProps} />
+              {facView === "current" && <PinRow zone="pricing" {...pinProps} />}
             </FacSection>
 
             {/* BOTTOM CTA */}
             <FacSection active={activeZone === "cta2"} style={{ textAlign: "center", background: "linear-gradient(135deg, rgba(24,97,50,0.04), rgba(91,97,244,0.03))" }}>
+              {facView === "restructured" && zoneChanges.cta2 && <ChangeTag tag={zoneChanges.cta2.tag} />}
               <FacH2>{realCtaTexts[1] ? `${realCtaTexts[1]}` : "Ready to get started?"}</FacH2>
-              <div style={{ fontSize: 13, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 20 }}>Join thousands of teams already using our platform.</div>
+              <div style={{ fontSize: 13, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 20 }}>
+                {facView === "restructured" && zoneChanges.cta2 ? zoneChanges.cta2.note : "Join thousands of teams already using our platform."}
+              </div>
               <div style={{ display: "flex", justifyContent: "center" }}>
                 <div style={{ padding: "9px 26px", background: "linear-gradient(135deg, #186132, #148C59)", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif" }}>
-                  {realCtaTexts[0] || "Get Started"}
+                  {facView === "restructured" && visionRewrite ? visionRewrite.cta : (realCtaTexts[0] || "Get Started")}
                 </div>
               </div>
-              <PinRow zone="cta2" {...pinProps} />
+              {facView === "current" && <PinRow zone="cta2" {...pinProps} />}
             </FacSection>
 
             {/* FOOTER */}
@@ -723,7 +822,33 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
 
           {/* ── Fix Drawer (sticky) ───────────────────────────────── */}
           <div style={{ position: "sticky", top: 20, width: 340, flexShrink: 0 }}>
-            {activeFinding ? (
+            {facView === "restructured" ? (
+              <div style={{
+                background: "rgba(255,255,255,0.4)",
+                backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+                borderRadius: 14, border: "1px solid rgba(255,255,255,0.65)",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
+                padding: "20px 20px 16px",
+              }}>
+                <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 13, fontWeight: 700, color: C.navy, letterSpacing: "-0.2px", marginBottom: 14 }}>
+                  What changed
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {whatChangedItems.map((item, i) => {
+                    const s = TAG_STYLES[item.tag];
+                    return (
+                      <div key={i} style={{ paddingBottom: 12, borderBottom: i < whatChangedItems.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                          <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: s.bg, color: s.color, fontFamily: "'Space Grotesk', sans-serif" }}>{item.tag}</span>
+                          <span style={{ fontSize: 11.5, fontWeight: 650, color: C.navy, fontFamily: "'Space Grotesk', sans-serif" }}>{item.zone}</span>
+                        </div>
+                        <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif" }}>{item.note}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : activeFinding ? (
               <FixDrawer
                 finding={activeFinding}
                 findingIndex={activeFindingIndex}

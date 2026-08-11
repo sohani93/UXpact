@@ -1529,12 +1529,13 @@ async function narrateStory(args: {
 }
 
 // ─── SAVE TO SUPABASE ───
-async function saveAuditResults(url: string, domain: string, industry: Industry, scores: AuditScores, findings: CheckResult[], domData: Record<string, unknown>, goal: string, archetype: ArchetypeDiagnosis, narration: StoryNarration | null): Promise<string | null> {
+async function saveAuditResults(url: string, domain: string, industry: Industry, scores: AuditScores, findings: CheckResult[], domData: Record<string, unknown>, goal: string, archetype: ArchetypeDiagnosis, narration: StoryNarration | null, rawHtml: string): Promise<string | null> {
   if (!supabase) return null;
   const { data: auditData, error: auditError } = await supabase.from("audits").insert({
     url, domain, industry, status: "complete",
     score: scores.total, part_a_score: scores.partA, part_b_score: scores.partB, part_c_score: scores.partC,
     score_label: scores.label, checks_passed: scores.checksPassed, checks_flagged: scores.checksFlagged, critical_issues: scores.criticalIssues, dom_data: domData,
+    raw_html: rawHtml,
     goal,
     current_archetype: archetype.current,
     target_archetype: archetype.target,
@@ -1613,7 +1614,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const narration = await narrateStory({ metadata, industry, goal, archetype, scores, topFindings: getTopFindings(findings, 10) });
 
-    const auditId = await saveAuditResults(targetUrl.toString(), metadata.domain, industry, scores, findings, domData, goal, archetype, narration);
+    const auditId = await saveAuditResults(targetUrl.toString(), metadata.domain, industry, scores, findings, domData, goal, archetype, narration, html);
 
     return jsonResponse({
       auditId, scores, findings, topFindings, domData,
