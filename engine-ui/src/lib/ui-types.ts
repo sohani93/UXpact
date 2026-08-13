@@ -37,6 +37,16 @@ export type VisionRewrite = {
   cta: string;
 };
 
+export type JourneyStage = "arrival" | "understanding" | "trust-building" | "decision" | "action";
+
+export type JourneyBreak = {
+  journeyStage: JourneyStage;
+  element: string;
+  currentArchetypeSignal: string;
+  conflictSeverity: number;
+  reason: string;
+};
+
 export type AuditData = {
   auditId: string;
   url: string;
@@ -59,10 +69,7 @@ export type AuditData = {
   currentArchetype?: Archetype | null;
   targetArchetype?: Archetype | null;
   narrativeVerdict?: string | null;
-  croDiagnosis?: string | null;
-  currentArchetypeDescription?: string | null;
-  targetArchetypeDescription?: string | null;
-  archetypeGap?: string | null;
+  journeyBreaks?: JourneyBreak[] | null;
   storyFixes?: string[] | null;
   visionRewrite?: VisionRewrite | null;
 };
