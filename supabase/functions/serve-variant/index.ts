@@ -21,6 +21,11 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const supabase = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
 
+// Layer 3 — how often the embed script is asked to report a drift
+// fingerprint. Read-only here (serve-variant never writes); check-drift
+// is what actually advances last_checked_at once it processes a report.
+const DRIFT_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders, status: 204 });
 
@@ -39,20 +44,31 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   if (!auditId || !supabase) {
-    return jsonResponse({ sections: null }, 200);
+    return jsonResponse({ sections: null, driftCheckDue: false }, 200);
   }
 
-  const { data, error } = await supabase
-    .from("deployed_variants")
-    .select("variant_html")
-    .eq("audit_id", auditId)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle();
+  const [{ data, error }, { data: snapshot }] = await Promise.all([
+    supabase
+      .from("deployed_variants")
+      .select("variant_html")
+      .eq("audit_id", auditId)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("site_snapshots")
+      .select("last_checked_at")
+      .eq("audit_id", auditId)
+      .maybeSingle(),
+  ]);
+
+  const driftCheckDue =
+    !snapshot?.last_checked_at ||
+    Date.now() - new Date(snapshot.last_checked_at).getTime() > DRIFT_CHECK_INTERVAL_MS;
 
   if (error || !data) {
-    return jsonResponse({ sections: null }, 200);
+    return jsonResponse({ sections: null, driftCheckDue }, 200);
   }
 
-  return jsonResponse({ sections: data.variant_html ?? null }, 200);
+  return jsonResponse({ sections: data.variant_html ?? null, driftCheckDue }, 200);
 });

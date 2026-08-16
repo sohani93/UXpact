@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.serve-variant]
 verify_jwt = false
+
+[functions.check-drift]
+verify_jwt = false

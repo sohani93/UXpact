@@ -478,6 +478,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
   const [deploying, setDeploying] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
   const [copiedSnippet, setCopiedSnippet] = useState(false);
+  const [driftEvents, setDriftEvents] = useState<any[]>([]);
   const stepTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -493,12 +494,14 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
           { data: journeyRows },
           { data: versionRows },
           { data: deployedRows },
+          { data: driftRows },
         ] = await Promise.all([
           supabase.from("audits").select("*").eq("id", auditId),
           supabase.from("audit_findings").select("*").eq("audit_id", auditId),
           supabase.from("archetype_consistency_scores").select("*").eq("audit_id", auditId),
           supabase.from("vision_versions").select("*").eq("audit_id", auditId).order("version_number", { ascending: true }),
           supabase.from("deployed_variants").select("id").eq("audit_id", auditId).eq("is_active", true).limit(1),
+          supabase.from("drift_events").select("*").eq("audit_id", auditId).order("detected_at", { ascending: false }),
         ]);
 
         if (auditErr) throw new Error(auditErr.message);
@@ -520,6 +523,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
         setJourneyBreaks(mappedJourney);
         setVersions(versionRows ?? []);
         setIsLive((deployedRows ?? []).length > 0);
+        setDriftEvents(driftRows ?? []);
         setArchetype(audit.target_archetype || "Hero");
         setCopySelections(seedCopySelectionsFromJourney(mappedJourney));
       } catch (err) {
@@ -1180,6 +1184,21 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
                       background: copiedSnippet ? "linear-gradient(135deg,#186132,#14D571)" : "rgba(0,0,0,0.06)",
                       color: copiedSnippet ? "#fff" : C.navy, fontSize: 10.5, fontWeight: 700, fontFamily: "'Space Grotesk',sans-serif",
                     }}>{copiedSnippet ? "Copied" : "Copy"}</button>
+                  </div>
+                )}
+                {isLive && driftEvents.length > 0 && (
+                  <div style={{ padding: "10px 16px", background: "rgba(245,158,11,0.06)", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#92400E", fontFamily: "'Space Grotesk',sans-serif", marginBottom: 6 }}>
+                      Drift detected since deploy
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {driftEvents.slice(0, 5).map((ev) => (
+                        <div key={ev.id} style={{ fontSize: 11.5, color: "#374151", fontFamily: "'Space Grotesk',sans-serif" }}>
+                          <span style={{ fontWeight: 650 }}>{ev.element || "A section"}</span> got worse (+{ev.severity_delta} severity) on{" "}
+                          {new Date(ev.detected_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
                 {deployError && (
