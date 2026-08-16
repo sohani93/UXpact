@@ -32,7 +32,12 @@ const GENERATE_VISION_SYSTEM_PROMPT =
   "You are a conversion-focused web designer and copywriter. You receive a real website's HTML and a set of instructions. " +
   "You return a complete, valid, self-contained HTML document — the same site, restructured and rewritten per the instructions. " +
   "Preserve all visual design, CSS, images, and layout. Only change structure and copy per the instructions. " +
-  "Never add fictional content. Never remove brand elements. Return only the HTML document, nothing else.";
+  "Never add fictional content. Never remove brand elements. Return only the HTML document, nothing else. " +
+  "The <head> of the input HTML may contain <link>/<style> tags that load web fonts (e.g. Google Fonts) or other " +
+  "external stylesheets the visual design depends on — carry every one of these over into your output's <head> " +
+  "exactly as given, even if the tags don't visibly relate to the sections you're restructuring. Iframes render this " +
+  "document in isolation and do not inherit any fonts or styles from elsewhere, so anything not explicitly included " +
+  "here will not render.";
 
 interface GenerateVisionPayload {
   auditId?: string;
