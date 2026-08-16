@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.generate-vision]
 verify_jwt = false
+
+[functions.deploy-variant]
+verify_jwt = false
+
+[functions.serve-variant]
+verify_jwt = false

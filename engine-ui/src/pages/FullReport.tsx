@@ -359,7 +359,7 @@ function UXProCard({ auditId }: { auditId: string }) {
   );
 }
 
-function ExpandingCTA({ onBlueprint, onVision }) {
+function ExpandingCTA({ onBlueprint }) {
   const [expanded, setExpanded] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -368,8 +368,7 @@ function ExpandingCTA({ onBlueprint, onVision }) {
     obs.observe(el); return () => obs.disconnect();
   }, []);
   const ctaItems = [
-    { ibg: "linear-gradient(145deg,#818CF8,#5B61F4)", t: "Conversion Blueprint",      d: "Every finding pinned to your page with AI-ready fix prompts.", onClick: onBlueprint },
-    { ibg: "linear-gradient(145deg,#186132,#148C59)", t: "UX Vision",                 d: "See the story your site should be telling — side by side with what it tells today.", onClick: onVision },
+    { ibg: "linear-gradient(145deg,#818CF8,#5B61F4)", t: "Conversion Blueprint",      d: "Every finding pinned to your page — plus a generative rebuild you can pick, preview, and deploy live.", onClick: onBlueprint },
     { ibg: "linear-gradient(145deg,#14D571,#148C59)", t: "Pulse Tracker",             d: "Chrome & Edge extension. Check off fixes as you go." },
   ];
   return (
@@ -388,7 +387,7 @@ function ExpandingCTA({ onBlueprint, onVision }) {
           <div style={{ fontSize: 24, marginBottom: 8 }}>💜</div>
           <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 20, fontWeight: 700, color: "#fff", margin: "0 0 6px" }}>You're all set.</h2>
           <p style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", margin: "0 0 20px" }}>Your full audit pack is ready to go.</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, maxWidth: 680, margin: "0 auto" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 460, margin: "0 auto" }}>
             {ctaItems.map((ct, i) => <CTACard key={i} ct={ct} />)}
           </div>
         </div>
@@ -498,11 +497,6 @@ export default function FullReport({ auditId }: { auditId: string }) {
 
   const goToBlueprint = () => {
     window.history.pushState({}, "", `/blueprint/${auditId}`);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  };
-
-  const goToVision = () => {
-    window.history.pushState({}, "", `/vision/${auditId}`);
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
 
@@ -807,7 +801,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
 
           {/* Card 5 — ExpandingCTA (sticky) */}
           <div style={{ position: "sticky", top: 52, zIndex: 40, marginBottom: 0 }}>
-            <ExpandingCTA onBlueprint={goToBlueprint} onVision={goToVision} />
+            <ExpandingCTA onBlueprint={goToBlueprint} />
           </div>
 
           <div style={{ textAlign: "center", padding: "24px 0 40px" }}>

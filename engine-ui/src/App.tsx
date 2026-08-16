@@ -4,7 +4,6 @@ import LoadingState from "./components/LoadingState";
 import FullReport from "./pages/FullReport";
 import ConversionBlueprint from "./pages/Blueprint";
 import ProReaudit from "./pages/ProReaudit";
-import ProVision from "./pages/ProVision";
 import ProPlugins from "./pages/ProPlugins";
 import type { AuditData, AuditRequestFormData, Finding } from "./lib/ui-types";
 
@@ -23,8 +22,14 @@ function App() {
   if (path.startsWith("/report/"))    return <FullReport auditId={path.split("/")[2]} />;
   if (path.startsWith("/blueprint/")) return <ConversionBlueprint auditId={path.split("/")[2]} />;
   if (path.startsWith("/reaudit/"))   return <ProReaudit auditId={path.split("/")[2]} />;
-  if (path.startsWith("/vision/"))    return <ProVision auditId={path.split("/")[2]} />;
   if (path.startsWith("/plugins/"))   return <ProPlugins auditId={path.split("/")[2]} />;
+  // Vision retired as a standalone page — its sandbox now lives inside Blueprint's
+  // Restructured toggle. Redirect old links rather than 404.
+  if (path.startsWith("/vision/")) {
+    const auditId = path.split("/")[2];
+    window.history.replaceState({}, "", `/blueprint/${auditId}`);
+    return <ConversionBlueprint auditId={auditId} />;
+  }
   return <AuditPage />;
 }
 
