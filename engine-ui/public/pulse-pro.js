@@ -14,6 +14,12 @@
  * to check-drift — the drift monitor's client-side detection tier. This is
  * fire-and-forget and never blocks or affects variant application.
  *
+ * Layer 4 (Vision Pro bandit engine): serve-variant may now be running a
+ * live test across several variants and returns which one this visitor got
+ * (deployedVariantId). This script attaches a click listener to that
+ * variant's primary CTA (the first link/button in the hero zone) and
+ * reports it as a conversion, fire-and-forget, same as the drift report.
+ *
  * Distinct from the Pulse browser extension: this runs in every visitor's
  * browser on your actual site, not just in your own browser.
  */
@@ -22,6 +28,7 @@
 
   var SERVE_VARIANT_URL = "https://oxminualycvnxofoevjs.supabase.co/functions/v1/serve-variant";
   var CHECK_DRIFT_URL = "https://oxminualycvnxofoevjs.supabase.co/functions/v1/check-drift";
+  var RECORD_EVENT_URL = "https://oxminualycvnxofoevjs.supabase.co/functions/v1/record-variant-event";
   var FETCH_TIMEOUT_MS = 5000;
 
   var ZONE_KEYWORDS = {
@@ -122,6 +129,45 @@
     }
   }
 
+  // Reports a conversion for the variant this visitor was served. "Convert"
+  // is loosely defined per the build plan as a click on the primary CTA —
+  // the first link/button found inside the hero zone.
+  function reportConversion(deployedVariantId) {
+    try {
+      var controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+      var timeoutId = controller
+        ? setTimeout(function () { controller.abort(); }, FETCH_TIMEOUT_MS)
+        : null;
+
+      fetch(RECORD_EVENT_URL, {
+        method: "POST",
+        signal: controller ? controller.signal : undefined,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deployedVariantId: deployedVariantId, eventType: "convert" })
+      })
+        .then(function () { if (timeoutId) clearTimeout(timeoutId); })
+        .catch(function () {
+          // network error, timeout, abort — do nothing, this is fire-and-forget
+        });
+    } catch (e) {
+      // never throw into the host page
+    }
+  }
+
+  function attachConversionListener(deployedVariantId) {
+    try {
+      var heroEl = findZoneElement("hero");
+      if (!heroEl) return;
+      var cta = heroEl.querySelector("a, button");
+      if (!cta) return;
+      cta.addEventListener("click", function () {
+        reportConversion(deployedVariantId);
+      });
+    } catch (e) {
+      // never throw into the host page
+    }
+  }
+
   function run() {
     var script = document.currentScript;
     if (!script) return;
@@ -140,6 +186,7 @@
       .then(function (data) {
         if (timeoutId) clearTimeout(timeoutId);
         if (data && data.sections) applyVariant(data.sections);
+        if (data && data.deployedVariantId) attachConversionListener(data.deployedVariantId);
         if (data && data.driftCheckDue) reportDrift(auditId);
       })
       .catch(function () {

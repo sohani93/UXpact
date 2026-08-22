@@ -479,7 +479,44 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
   const [deployError, setDeployError] = useState<string | null>(null);
   const [copiedSnippet, setCopiedSnippet] = useState(false);
   const [driftEvents, setDriftEvents] = useState<any[]>([]);
+  const [activeVariants, setActiveVariants] = useState<any[]>([]);
+  const [variantEventCounts, setVariantEventCounts] = useState<Record<string, { serves: number; converts: number }>>({});
+  const [addingLiveTest, setAddingLiveTest] = useState(false);
   const stepTimerRef = useRef<number | null>(null);
+
+  // Layer 4 — Vision Pro: refetches every active variant for this audit
+  // (there can be more than one during a live bandit test) plus their
+  // serve/convert counts, so the panel below always reflects real state
+  // after a deploy, rollback, or added test arm.
+  const refreshActiveVariants = async () => {
+    const supabase = getSupabase();
+    const { data: activeRows } = await supabase
+      .from("deployed_variants")
+      .select("id, traffic_weight")
+      .eq("audit_id", auditId)
+      .eq("is_active", true);
+    const rows = activeRows ?? [];
+    setIsLive(rows.length > 0);
+    setActiveVariants(rows);
+    if (rows.length === 0) {
+      setVariantEventCounts({});
+      return;
+    }
+    const ids = rows.map((v: any) => v.id);
+    const { data: eventRows } = await supabase
+      .from("variant_events")
+      .select("deployed_variant_id, event_type")
+      .in("deployed_variant_id", ids);
+    const counts: Record<string, { serves: number; converts: number }> = {};
+    ids.forEach((id: string) => { counts[id] = { serves: 0, converts: 0 }; });
+    (eventRows ?? []).forEach((ev: any) => {
+      const entry = counts[ev.deployed_variant_id];
+      if (!entry) return;
+      if (ev.event_type === "serve") entry.serves += 1;
+      else if (ev.event_type === "convert") entry.converts += 1;
+    });
+    setVariantEventCounts(counts);
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -493,16 +530,15 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
           { data: findingsRows, error: findingsErr },
           { data: journeyRows },
           { data: versionRows },
-          { data: deployedRows },
           { data: driftRows },
         ] = await Promise.all([
           supabase.from("audits").select("*").eq("id", auditId),
           supabase.from("audit_findings").select("*").eq("audit_id", auditId),
           supabase.from("archetype_consistency_scores").select("*").eq("audit_id", auditId),
           supabase.from("vision_versions").select("*").eq("audit_id", auditId).order("version_number", { ascending: true }),
-          supabase.from("deployed_variants").select("id").eq("audit_id", auditId).eq("is_active", true).limit(1),
           supabase.from("drift_events").select("*").eq("audit_id", auditId).order("detected_at", { ascending: false }),
         ]);
+        await refreshActiveVariants();
 
         if (auditErr) throw new Error(auditErr.message);
         let audit = auditRows?.[0] ?? null;
@@ -522,7 +558,6 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
         }));
         setJourneyBreaks(mappedJourney);
         setVersions(versionRows ?? []);
-        setIsLive((deployedRows ?? []).length > 0);
         setDriftEvents(driftRows ?? []);
         setArchetype(audit.target_archetype || "Hero");
         setCopySelections(seedCopySelectionsFromJourney(mappedJourney));
@@ -667,7 +702,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
       if (!response.ok || json.error) {
         setDeployError(json.message || "Deploy failed. Try again.");
       } else {
-        setIsLive(true);
+        await refreshActiveVariants();
       }
     } catch (err) {
       setDeployError(err instanceof Error ? err.message : "Couldn't reach the deploy service.");
@@ -676,10 +711,37 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
     }
   };
 
+  // Layer 4 — Vision Pro: deploys this generated variant *alongside* whatever
+  // is already active, instead of replacing it, so a live bandit test has
+  // more than one arm. deploy-variant rebalances all active variants to
+  // equal traffic_weight when multiArmed is set.
+  const handleAddLiveTestVariant = async () => {
+    if (!generatedHtml || !auditData?.raw_html) return;
+    setAddingLiveTest(true);
+    setDeployError(null);
+    try {
+      const response = await fetch(DEPLOY_VARIANT_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auditId, domain: auditData.domain, generatedHtml, rawHtml: auditData.raw_html, zones: sectionOrder, multiArmed: true }),
+      });
+      const json = await response.json();
+      if (!response.ok || json.error) {
+        setDeployError(json.message || "Couldn't add this as a live test variant. Try again.");
+      } else {
+        await refreshActiveVariants();
+      }
+    } catch (err) {
+      setDeployError(err instanceof Error ? err.message : "Couldn't reach the deploy service.");
+    } finally {
+      setAddingLiveTest(false);
+    }
+  };
+
   const handleRollback = async () => {
     const supabase = getSupabase();
     await supabase.from("deployed_variants").update({ is_active: false }).eq("audit_id", auditId).eq("is_active", true);
-    setIsLive(false);
+    await refreshActiveVariants();
     setDeployError(null);
   };
 
@@ -1157,11 +1219,18 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
                         fontFamily: "'Space Grotesk',sans-serif",
                       }}>Save version</button>
                       {isLive ? (
-                        <button onClick={handleRollback} style={{
-                          padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer",
-                          background: "rgba(220,38,38,0.1)", color: C.red, fontSize: 11, fontWeight: 700,
-                          fontFamily: "'Space Grotesk',sans-serif",
-                        }}>Rollback</button>
+                        <>
+                          <button onClick={handleAddLiveTestVariant} disabled={addingLiveTest} style={{
+                            padding: "5px 12px", borderRadius: 7, border: "none", cursor: addingLiveTest ? "default" : "pointer",
+                            background: addingLiveTest ? "rgba(91,97,244,0.3)" : "rgba(91,97,244,0.12)", color: C.violet, fontSize: 11, fontWeight: 700,
+                            fontFamily: "'Space Grotesk',sans-serif",
+                          }}>{addingLiveTest ? "Adding…" : "Add as live test variant"}</button>
+                          <button onClick={handleRollback} style={{
+                            padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer",
+                            background: "rgba(220,38,38,0.1)", color: C.red, fontSize: 11, fontWeight: 700,
+                            fontFamily: "'Space Grotesk',sans-serif",
+                          }}>Rollback</button>
+                        </>
                       ) : (
                         <button onClick={handleDeploy} disabled={deploying} style={{
                           padding: "5px 12px", borderRadius: 7, border: "none", cursor: deploying ? "default" : "pointer",
@@ -1184,6 +1253,24 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
                       background: copiedSnippet ? "linear-gradient(135deg,#186132,#14D571)" : "rgba(0,0,0,0.06)",
                       color: copiedSnippet ? "#fff" : C.navy, fontSize: 10.5, fontWeight: 700, fontFamily: "'Space Grotesk',sans-serif",
                     }}>{copiedSnippet ? "Copied" : "Copy"}</button>
+                  </div>
+                )}
+                {isLive && activeVariants.length > 0 && (
+                  <div style={{ padding: "10px 16px", background: "rgba(91,97,244,0.05)", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.violet, fontFamily: "'Space Grotesk',sans-serif", marginBottom: 6 }}>
+                      Vision Pro live test{activeVariants.length > 1 ? ` — ${activeVariants.length} variants` : ""}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {activeVariants.map((v, i) => {
+                        const counts = variantEventCounts[v.id] ?? { serves: 0, converts: 0 };
+                        const weightPct = Math.round((v.traffic_weight ?? (1 / activeVariants.length)) * 100);
+                        return (
+                          <div key={v.id} style={{ fontSize: 11.5, color: "#374151", fontFamily: "'Space Grotesk',sans-serif" }}>
+                            <span style={{ fontWeight: 650 }}>Variant {i + 1}</span> — {weightPct}% traffic · {counts.serves} served · {counts.converts} converted
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
                 {isLive && driftEvents.length > 0 && (

@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.check-drift]
 verify_jwt = false
+
+[functions.record-variant-event]
+verify_jwt = false

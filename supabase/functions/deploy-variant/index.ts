@@ -74,6 +74,7 @@ interface DeployPayload {
   generatedHtml?: string;
   rawHtml?: string;
   zones?: string[];
+  multiArmed?: boolean;
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -90,6 +91,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const { auditId, domain, generatedHtml, rawHtml } = payload;
   const zones = Array.isArray(payload.zones) ? payload.zones.filter((z): z is string => typeof z === "string") : [];
+  const multiArmed = payload.multiArmed === true;
 
   if (!auditId || !generatedHtml || !rawHtml || zones.length === 0) {
     return errorResponse("MISSING_FIELDS", "auditId, generatedHtml, rawHtml, and at least one zone are required.", 400);
@@ -108,17 +110,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return errorResponse("NO_ZONES_MATCHED", "None of the requested zones could be identified in the generated HTML.", 422);
   }
 
-  // Only one active variant per audit.
-  const { error: deactivateError } = await supabase
-    .from("deployed_variants")
-    .update({ is_active: false })
-    .eq("audit_id", auditId)
-    .eq("is_active", true);
-  if (deactivateError) return errorResponse("DEACTIVATE_FAILED", deactivateError.message, 500);
+  // Layer 2 default: replace whatever was live — only one active variant per audit.
+  // Layer 4 (multiArmed): leave existing active variants running and add this
+  // one alongside them, so a bandit test has more than one arm to compare.
+  if (!multiArmed) {
+    const { error: deactivateError } = await supabase
+      .from("deployed_variants")
+      .update({ is_active: false })
+      .eq("audit_id", auditId)
+      .eq("is_active", true);
+    if (deactivateError) return errorResponse("DEACTIVATE_FAILED", deactivateError.message, 500);
+  }
 
   const { data: variantRow, error: insertError } = await supabase
     .from("deployed_variants")
-    .insert({ audit_id: auditId, domain: domain ?? null, variant_html: variantFragments, is_active: true })
+    .insert({ audit_id: auditId, domain: domain ?? null, variant_html: variantFragments, is_active: true, traffic_weight: 1 })
     .select("id")
     .single();
   if (insertError || !variantRow?.id) return errorResponse("DEPLOY_FAILED", insertError?.message ?? "Failed to store deployed variant.", 500);
@@ -127,6 +133,24 @@ Deno.serve(async (req: Request): Promise<Response> => {
     .from("deploy_snapshots")
     .insert({ deployed_variant_id: variantRow.id, pre_deploy_html: preDeployFragments });
   if (snapshotError) console.error("Failed to store deploy snapshot:", snapshotError.message);
+
+  // Rebalance to equal weight across every active variant for this audit —
+  // "start all variants at equal weight" per the build plan. With !multiArmed
+  // this is always exactly one row (weight 1), so it's a no-op for the
+  // existing Layer 2/3 single-variant flow.
+  if (multiArmed) {
+    const { data: activeVariants, error: activeError } = await supabase
+      .from("deployed_variants")
+      .select("id")
+      .eq("audit_id", auditId)
+      .eq("is_active", true);
+    if (!activeError && activeVariants && activeVariants.length > 0) {
+      const equalWeight = 1 / activeVariants.length;
+      await Promise.all(
+        activeVariants.map((v) => supabase.from("deployed_variants").update({ traffic_weight: equalWeight }).eq("id", v.id)),
+      );
+    }
+  }
 
   const embedSnippet = `<script src="https://uxpact.pages.dev/pulse-pro.js" data-uxpact-audit="${auditId}" async></script>`;
 
