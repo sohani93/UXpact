@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd $CWD && if git diff --name-only HEAD | grep -q 'supabase/functions'; then echo 'Edge Function changed — flag for MCP deploy_edge_function, never dashboard paste.'; fi"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Check: did the tester subagent report a PASS verdict backed by real evidence (log lines or test output) for every change made this session? If not, or if only mocked-data tests ran on a change that touches live data, return {\"decision\": \"block\", \"reason\": \"tester has not confirmed with evidence — hand off to tester before finishing\"}. Otherwise return {\"decision\": \"allow\"}.",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP": "3"
+  }
+}
