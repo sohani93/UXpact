@@ -52,3 +52,18 @@ Update the Product Roadmap Notion page before closing:
 - Add any new bugs or issues found as unchecked items under the relevant phase
 - Add any architectural decisions made to the Strategy & Research decisions log
 URL: https://app.notion.com/p/315685bc7e8c8050a52be5d8e8c7d4d1
+
+## Autonomous build-test-debug loop
+
+For any task, prefer this sequence over doing everything in one context:
+
+1. `implementer` subagent writes the change.
+2. `tester` subagent verifies it with real evidence (Playwright output, Supabase logs/advisors) — never a mocked-only check for anything touching live data.
+3. If FAIL, `debugger` subagent investigates independently and hands a specific fix back to `implementer`. Loop back to step 2.
+4. Capped at 3 automatic retries (`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=3`). If still failing after 3 rounds, stop and report to Sohani with what was tried and why it didn't work — don't keep guessing silently.
+
+## The one gate that stays manual
+
+The loop above can run unattended up to the point of deploy. **Never auto-deploy an Edge Function or push to the production Supabase project (`oxminualycvnxofoevjs`) without explicit go-ahead.** Deploy to a dev/staging branch or run against mocked data during the loop; production deploy is a separate, confirmed step. This matters because UXpact audits are currently feeding real founder pilot demos for visa evidence — a bad autonomous deploy during that window is worse than a slower fix.
+
+Reminder (existing, still applies): Edge Function deploys always go through the Supabase MCP `deploy_edge_function` tool, never manual dashboard paste — dashboard paste silently drops `config.toml` settings like `verify_jwt: false` and has caused two production bugs already.
