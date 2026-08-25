@@ -279,13 +279,20 @@ function extractPageMetadata(args: { doc: Document; html: string; url: URL; stat
   // ─── SOCIAL: testimonial/review text ───
   const testimonialTexts = (() => {
     const classPattern = /testimonial|review|quote/i;
-    const candidates = Array.from(doc.querySelectorAll("blockquote, [class], [id]")).filter((el) => {
+    const isTestimonialMatch = (el: Element) => {
       if (el.tagName.toLowerCase() === "blockquote") return true;
       const classes = `${el.getAttribute("class") ?? ""} ${el.getAttribute("id") ?? ""}`.toLowerCase();
       return classPattern.test(classes);
-    });
+    };
+    const candidates = Array.from(doc.querySelectorAll("blockquote, [class], [id]")).filter(isTestimonialMatch);
+    const isWrapper = (el: Element) => {
+      const descendants = Array.from(el.querySelectorAll("blockquote, [class], [id]")).filter(isTestimonialMatch);
+      const outermost = descendants.filter((d) => !descendants.some((other) => other !== d && other.contains(d)));
+      return outermost.length >= 2;
+    };
     const texts: string[] = [];
     for (const el of candidates) {
+      if (isWrapper(el)) continue;
       const text = cleanText(el.textContent).slice(0, 220);
       if (text.length < 15) continue;
       if (texts.some((t) => t.startsWith(text) || text.startsWith(t))) continue;
@@ -320,7 +327,7 @@ function extractPageMetadata(args: { doc: Document; html: string; url: URL; stat
     const matchesPricing = (el: Element) => pricingPattern.test(`${el.getAttribute("class") ?? ""} ${el.getAttribute("id") ?? ""}`.toLowerCase());
     const containers = Array.from(doc.querySelectorAll("[class], [id]")).filter((el) => {
       if (!matchesPricing(el)) return false;
-      return !Array.from(el.querySelectorAll("[class], [id]")).some(matchesPricing);
+      return !Array.from(el.querySelectorAll("[class], [id]")).some((d) => matchesPricing(d) && priceRegex.test(d.textContent ?? ""));
     });
     const tiers: { name: string; price: string }[] = [];
     for (const el of containers) {
