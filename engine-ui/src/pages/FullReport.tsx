@@ -347,7 +347,51 @@ function UXProCard({ auditId }: { auditId: string }) {
   );
 }
 
-function ExpandingCTA({ onBlueprint, onVision }) {
+function PulseModal({ open, onClose, auditId, done, total }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = e => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const copyId = async () => {
+    try {
+      await navigator.clipboard.writeText(String(auditId));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(11,28,72,0.45)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, animation: "fadeIn 0.2s ease both" }}>
+      <div onClick={e => e.stopPropagation()} style={{ ...glass, background: "rgba(255,255,255,0.97)", borderRadius: 18, padding: "28px 28px 24px", maxWidth: 420, width: "100%", position: "relative", boxShadow: "0 20px 60px rgba(11,28,72,0.25)", animation: "fadeUp 0.25s cubic-bezier(0.34,1.56,0.64,1) both" }}>
+        <button onClick={onClose} style={{ position: "absolute", top: 14, right: 14, width: 26, height: 26, borderRadius: "50%", border: "none", background: "rgba(0,0,0,0.05)", color: C.muted, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
+          <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.mint, animation: "pulseAnim 2s infinite" }} />
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.6px", color: C.violet }}>Pulse Tracker</div>
+        </div>
+
+        <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 17, fontWeight: 700, color: C.navy, margin: "0 0 8px", lineHeight: 1.3 }}>Track your fixes on your live site</h2>
+        <p style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6, margin: "0 0 18px" }}>Pulse is UXpact's Chrome & Edge extension. Paste your Audit ID in, and it syncs this report's findings into a checklist you can tick off directly on your live site as you ship fixes.</p>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <div style={{ flex: 1, padding: "10px 14px", borderRadius: 10, background: "rgba(11,28,72,0.05)", border: "1px solid rgba(11,28,72,0.08)", fontFamily: "'Space Grotesk',sans-serif", fontSize: 13, fontWeight: 700, color: C.navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>#{auditId}</div>
+          <button onClick={copyId} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: copied ? "rgba(20,213,113,0.15)" : C.emerald, color: copied ? C.emerald : "#fff", fontFamily: "'Space Grotesk',sans-serif", fontSize: 11.5, fontWeight: 700, cursor: "pointer", flexShrink: 0, transition: "all 0.18s ease" }}>{copied ? "Copied!" : "Copy"}</button>
+        </div>
+
+        <p style={{ fontSize: 11.5, color: C.dim, lineHeight: 1.5, margin: 0 }}>{done}/{total} items already addressed in this report — Pulse keeps that in sync as you fix the rest.</p>
+      </div>
+    </div>
+  );
+}
+
+function ExpandingCTA({ onBlueprint, onVision, onPulse }) {
   const [expanded, setExpanded] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -358,7 +402,7 @@ function ExpandingCTA({ onBlueprint, onVision }) {
   const ctaItems = [
     { ibg: "linear-gradient(145deg,#818CF8,#5B61F4)", t: "Conversion Blueprint",      d: "Every finding pinned to your page with AI-ready fix prompts.", onClick: onBlueprint },
     { ibg: "linear-gradient(145deg,#186132,#148C59)", t: "UX Vision",                 d: "See the story your site should be telling — side by side with what it tells today.", onClick: onVision },
-    { ibg: "linear-gradient(145deg,#14D571,#148C59)", t: "Pulse Tracker",             d: "Chrome & Edge extension. Check off fixes as you go." },
+    { ibg: "linear-gradient(145deg,#14D571,#148C59)", t: "Pulse Tracker",             d: "Chrome & Edge extension. Check off fixes as you go.", onClick: onPulse },
   ];
   return (
     <div ref={ref} style={{ borderRadius: 16, background: "linear-gradient(135deg,#186132,#14D571)", boxShadow: "0 8px 32px rgba(20,140,89,0.2)", marginBottom: 0 }}>
@@ -443,6 +487,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeF = displayFindings.find(f => f.id === activeId) || null;
   const openFinding = (id: string) => setActiveId(a => a === id ? null : id);
+  const [pulseModalOpen, setPulseModalOpen] = useState(false);
 
   // ── Counts ─────────────────────────────────────────────────────────
   const criticals = displayFindings.filter(f => f.severity === "critical");
@@ -566,7 +611,10 @@ export default function FullReport({ auditId }: { auditId: string }) {
             })}
           </div>
 
-          <div style={{ background: "rgba(91,97,244,0.06)", border: "1px solid rgba(91,97,244,0.15)", borderRadius: 12, padding: "12px 14px" }}>
+          <div onClick={() => setPulseModalOpen(true)} title="Track your fixes with the Pulse extension"
+            style={{ background: "rgba(91,97,244,0.06)", border: "1px solid rgba(91,97,244,0.15)", borderRadius: 12, padding: "12px 14px", cursor: "pointer", transition: "all 0.18s ease" }}
+            onMouseEnter={e => { e.currentTarget.style.background = "rgba(91,97,244,0.1)"; e.currentTarget.style.borderColor = "rgba(91,97,244,0.25)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "rgba(91,97,244,0.06)"; e.currentTarget.style.borderColor = "rgba(91,97,244,0.15)"; }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
               <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.mint, animation: "pulseAnim 2s infinite" }} />
               <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.6px", color: C.violet }}>Pulse Tracker</div>
@@ -782,7 +830,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
 
           {/* Card 5 — ExpandingCTA (sticky) */}
           <div style={{ position: "sticky", top: 52, zIndex: 40, marginBottom: 0 }}>
-            <ExpandingCTA onBlueprint={goToBlueprint} onVision={goToVision} />
+            <ExpandingCTA onBlueprint={goToBlueprint} onVision={goToVision} onPulse={() => setPulseModalOpen(true)} />
           </div>
 
           <div style={{ textAlign: "center", padding: "24px 0 40px" }}>
@@ -790,6 +838,8 @@ export default function FullReport({ auditId }: { auditId: string }) {
           </div>
         </div>
       </div>
+
+      <PulseModal open={pulseModalOpen} onClose={() => setPulseModalOpen(false)} auditId={auditId} done={done} total={total} />
     </div>
   );
 }
