@@ -459,6 +459,9 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
   const realCtaTexts: string[] = domData?.ctaTexts ?? [];
   const realH2Texts: string[] = domData?.h2Texts ?? [];
   const realParagraphs: string[] = domData?.paragraphTexts ?? [];
+  const realTestimonialTexts: string[] = domData?.testimonialTexts ?? [];
+  const realTrustLogoLabels: string[] = domData?.trustLogoLabels ?? [];
+  const realPricingTiers: { name: string; price: string }[] = domData?.pricingTiers ?? [];
   const realDomain = auditData?.domain || "yoursite.com";
 
   const displayFindings = findings
@@ -659,14 +662,32 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             <FacSection active={activeZone === "social"} style={{ background: "rgba(224,231,255,0.07)" }}>
               <FacLabel t="Customers" />
               <FacH2>Trusted by teams at leading companies</FacH2>
-              <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 14 }}>
-                {[100,80,110,90,70].map((w,i) => (
-                  <div key={i} style={{ width: w, height: 26, background: "rgba(0,0,0,0.06)", borderRadius: 5 }} />
-                ))}
-              </div>
-              <div style={{ marginTop: 12, padding: "10px 13px", background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.18)", borderRadius: 8 }}>
-                <span style={{ fontSize: 11.5, color: "#92400E", fontFamily: "'Space Grotesk', sans-serif" }}>No testimonial quotes or outcome data detected in this section.</span>
-              </div>
+              {realTrustLogoLabels.length > 0 ? (
+                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 14 }}>
+                  {realTrustLogoLabels.map((l, i) => (
+                    <div key={i} style={{ padding: "5px 12px", height: 16, display: "flex", alignItems: "center", background: "rgba(0,0,0,0.06)", borderRadius: 5, fontSize: 10.5, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600 }}>{l}</div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 14 }}>
+                  {[100,80,110,90,70].map((w,i) => (
+                    <div key={i} style={{ width: w, height: 26, background: "rgba(0,0,0,0.06)", borderRadius: 5 }} />
+                  ))}
+                </div>
+              )}
+              {realTestimonialTexts.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
+                  {realTestimonialTexts.slice(0, 3).map((t, i) => (
+                    <div key={i} style={{ padding: "10px 13px", background: "rgba(255,255,255,0.55)", border: `1px solid ${C.border}`, borderRadius: 8 }}>
+                      <span style={{ fontSize: 11.5, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", fontStyle: "italic" }}>&ldquo;{t}&rdquo;</span>
+                    </div>
+                  ))}
+                </div>
+              ) : realTrustLogoLabels.length === 0 && (
+                <div style={{ marginTop: 12, padding: "10px 13px", background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.18)", borderRadius: 8 }}>
+                  <span style={{ fontSize: 11.5, color: "#92400E", fontFamily: "'Space Grotesk', sans-serif" }}>No testimonial quotes or outcome data detected in this section.</span>
+                </div>
+              )}
               <PinRow zone="social" {...pinProps} />
             </FacSection>
 
@@ -674,13 +695,16 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
             <FacSection active={activeZone === "pricing"}>
               <FacLabel t="Pricing" />
               <FacH2>Simple, transparent pricing</FacH2>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginTop: 14 }}>
-                {[
-                  { name: "Starter",    price: "$0",     mo: "free forever",  pop: false },
-                  { name: "Growth",     price: "$49",    mo: "/ month",       pop: false },
-                  { name: "Pro",        price: "$99",    mo: "/ month",       pop: true  },
-                  { name: "Enterprise", price: "Custom", mo: "",              pop: false },
-                ].map((p, i) => (
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${realPricingTiers.length >= 2 ? realPricingTiers.length : 4},1fr)`, gap: 10, marginTop: 14 }}>
+                {(realPricingTiers.length >= 2
+                  ? realPricingTiers.map((t) => ({ name: t.name, price: t.price, mo: "", pop: false }))
+                  : [
+                      { name: "Starter",    price: "$0",     mo: "free forever",  pop: false },
+                      { name: "Growth",     price: "$49",    mo: "/ month",       pop: false },
+                      { name: "Pro",        price: "$99",    mo: "/ month",       pop: true  },
+                      { name: "Enterprise", price: "Custom", mo: "",              pop: false },
+                    ]
+                ).map((p, i) => (
                   <div key={i} style={{
                     background: p.pop ? "rgba(20,140,89,0.06)" : "rgba(255,255,255,0.55)",
                     border: `1px solid ${p.pop ? "rgba(20,140,89,0.2)" : C.border}`,
