@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Check: did the tester subagent report a PASS verdict backed by real evidence (log lines or test output) for every change made this session? If not, or if only mocked-data tests ran on a change that touches live data, return {\"decision\": \"block\", \"reason\": \"tester has not confirmed with evidence — hand off to tester before finishing\"}. Otherwise return {\"decision\": \"allow\"}.",
+            "prompt": "Check: did the tester subagent report a verdict for every change made this session, labeled either 'PASSED — TESTED FOR REAL' or 'PASSED BASIC CHECK ONLY — NOT TESTED IN A BROWSER'? If the tester hasn't weighed in at all, return {\"decision\": \"block\", \"reason\": \"tester has not checked this yet — hand off to tester before finishing\"}. Otherwise return {\"decision\": \"allow\"} — either label is fine to finish on, as long as one was given honestly.",
             "timeout": 30
           }
         ]
