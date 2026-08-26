@@ -18,14 +18,20 @@ interface ArchetypeDiagnosis {
   target: Archetype;
 }
 
-interface StoryNarration {
-  verdict: string;
-  cro_diagnosis: string;
-  current_archetype_description: string;
-  target_archetype_description: string;
-  gap_summary: string;
-  story_fixes: string[];
-  vision_rewrite: { h1: string; hero_copy: string; cta: string };
+type JourneyStage = "arrival" | "understanding" | "trust-building" | "decision" | "action";
+const JOURNEY_STAGES: JourneyStage[] = ["arrival", "understanding", "trust-building", "decision", "action"];
+
+interface JourneyBreak {
+  journey_stage: JourneyStage;
+  element: string;
+  current_archetype_signal: string;
+  conflict_severity: number;
+  reason: string;
+}
+
+interface JourneyDiagnosis {
+  narrative_verdict: string;
+  journey_breaks: JourneyBreak[];
 }
 
 interface CheckResult {
@@ -1446,39 +1452,52 @@ const DOM_ZONE_MAP: Record<string, string> = {
   "C5.1": "features", "C5.2": "cta2",
 };
 
-// ─── CLAUDE API — STORY NARRATION ───
+// ─── CLAUDE API — UX JOURNEY DIAGNOSIS ───
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 
-const STORY_SYSTEM_PROMPT = "You are a UX story analyst. Synthesise structured audit findings into plain-language narrative verdicts for non-technical founders. Never use UX jargon. Never repeat findings verbatim. Always ground recommendations in the actual site copy provided. Always connect story gap to conversion impact.";
+const JOURNEY_SYSTEM_PROMPT = "You are a UX journey analyst. The site's story is the visitor's journey — arrival, understanding, trust-building, decision, action — not a brand-personality label. Archetype (current vs target) is only the lens for explaining WHY a stage breaks down, never the diagnosis itself. Never say a site 'is' or 'should be' an archetype as the verdict — describe where and why the visitor's journey breaks down, e.g. 'Visitors arrive expecting to understand what you do, but your hero section leads with a feature list instead of an outcome — they never build the trust needed to reach your CTA.' Every journey_break must be anchored to exactly one of the five journey stages. Never use jargon. Always ground reasons in the actual site copy provided. Always connect each break to conversion impact.";
 
-const STORY_NARRATION_SCHEMA = {
+const JOURNEY_DIAGNOSIS_SCHEMA = {
   type: "object",
   properties: {
-    verdict: { type: "string" },
-    cro_diagnosis: { type: "string" },
-    current_archetype_description: { type: "string" },
-    target_archetype_description: { type: "string" },
-    gap_summary: { type: "string" },
-    story_fixes: { type: "array", items: { type: "string" } },
-    vision_rewrite: {
-      type: "object",
-      properties: { h1: { type: "string" }, hero_copy: { type: "string" }, cta: { type: "string" } },
-      required: ["h1", "hero_copy", "cta"],
-      additionalProperties: false,
+    narrative_verdict: { type: "string" },
+    journey_breaks: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          journey_stage: { type: "string", enum: JOURNEY_STAGES },
+          element: { type: "string" },
+          current_archetype_signal: { type: "string" },
+          conflict_severity: { type: "integer", minimum: 1, maximum: 5 },
+          reason: { type: "string" },
+        },
+        required: ["journey_stage", "element", "current_archetype_signal", "conflict_severity", "reason"],
+        additionalProperties: false,
+      },
     },
   },
-  required: ["verdict", "cro_diagnosis", "current_archetype_description", "target_archetype_description", "gap_summary", "story_fixes", "vision_rewrite"],
+  required: ["narrative_verdict", "journey_breaks"],
   additionalProperties: false,
 };
 
-async function narrateStory(args: {
+function sanitizeJourneyBreaks(breaks: unknown): JourneyBreak[] {
+  if (!Array.isArray(breaks)) return [];
+  return breaks.filter((b): b is JourneyBreak =>
+    b && typeof b === "object" &&
+    JOURNEY_STAGES.includes((b as JourneyBreak).journey_stage) &&
+    typeof (b as JourneyBreak).conflict_severity === "number"
+  ).map((b) => ({ ...b, conflict_severity: Math.min(5, Math.max(1, Math.round(b.conflict_severity))) }));
+}
+
+async function diagnoseJourney(args: {
   metadata: PageMetadata;
   industry: Industry;
   goal: string;
   archetype: ArchetypeDiagnosis;
   scores: AuditScores;
   topFindings: CheckResult[];
-}): Promise<StoryNarration | null> {
+}): Promise<JourneyDiagnosis | null> {
   if (!ANTHROPIC_API_KEY) return null;
 
   const { metadata, industry, goal, archetype, scores, topFindings } = args;
@@ -1510,9 +1529,9 @@ async function narrateStory(args: {
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5",
-        max_tokens: 1500,
-        system: [{ type: "text", text: STORY_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-        output_config: { format: { type: "json_schema", schema: STORY_NARRATION_SCHEMA } },
+        max_tokens: 1800,
+        system: [{ type: "text", text: JOURNEY_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+        output_config: { format: { type: "json_schema", schema: JOURNEY_DIAGNOSIS_SCHEMA } },
         messages: [{ role: "user", content: JSON.stringify(userPayload) }],
       }),
     });
@@ -1520,7 +1539,8 @@ async function narrateStory(args: {
     const data = await response.json();
     const textBlock = (data.content ?? []).find((b: { type: string }) => b.type === "text");
     if (!textBlock?.text) return null;
-    return JSON.parse(textBlock.text) as StoryNarration;
+    const parsed = JSON.parse(textBlock.text) as { narrative_verdict: string; journey_breaks: unknown };
+    return { narrative_verdict: parsed.narrative_verdict, journey_breaks: sanitizeJourneyBreaks(parsed.journey_breaks) };
   } catch {
     return null;
   } finally {
@@ -1529,20 +1549,17 @@ async function narrateStory(args: {
 }
 
 // ─── SAVE TO SUPABASE ───
-async function saveAuditResults(url: string, domain: string, industry: Industry, scores: AuditScores, findings: CheckResult[], domData: Record<string, unknown>, goal: string, archetype: ArchetypeDiagnosis, narration: StoryNarration | null): Promise<string | null> {
+async function saveAuditResults(url: string, domain: string, industry: Industry, scores: AuditScores, findings: CheckResult[], domData: Record<string, unknown>, goal: string, archetype: ArchetypeDiagnosis, diagnosis: JourneyDiagnosis | null, rawHtml: string): Promise<string | null> {
   if (!supabase) return null;
   const { data: auditData, error: auditError } = await supabase.from("audits").insert({
     url, domain, industry, status: "complete",
     score: scores.total, part_a_score: scores.partA, part_b_score: scores.partB, part_c_score: scores.partC,
     score_label: scores.label, checks_passed: scores.checksPassed, checks_flagged: scores.checksFlagged, critical_issues: scores.criticalIssues, dom_data: domData,
+    raw_html: rawHtml,
     goal,
     current_archetype: archetype.current,
     target_archetype: archetype.target,
-    narrative_verdict: narration?.verdict ?? null,
-    cro_diagnosis: narration?.cro_diagnosis ?? null,
-    archetype_gap: narration?.gap_summary ?? null,
-    story_fixes: narration?.story_fixes ?? null,
-    vision_rewrite: narration?.vision_rewrite ?? null,
+    narrative_verdict: diagnosis?.narrative_verdict ?? null,
   }).select("id").single();
   if (auditError || !auditData?.id) throw new Error(`Failed to create audit: ${auditError?.message}`);
   const rows = findings.map((f) => ({
@@ -1556,6 +1573,23 @@ async function saveAuditResults(url: string, domain: string, industry: Industry,
   }));
   const { error: findingsError } = await supabase.from("audit_findings").insert(rows);
   if (findingsError) throw new Error(`Failed to save findings: ${findingsError.message}`);
+
+  if (diagnosis && diagnosis.journey_breaks.length > 0) {
+    const journeyRows = diagnosis.journey_breaks.map((b) => ({
+      audit_id: auditData.id,
+      narrative_verdict: diagnosis.narrative_verdict,
+      current_archetype: archetype.current,
+      target_archetype: archetype.target,
+      journey_stage: b.journey_stage,
+      element: b.element,
+      current_archetype_signal: b.current_archetype_signal,
+      conflict_severity: b.conflict_severity,
+      reason: b.reason,
+    }));
+    const { error: journeyError } = await supabase.from("archetype_consistency_scores").insert(journeyRows);
+    if (journeyError) console.error("Failed to save journey breaks:", journeyError.message);
+  }
+
   return auditData.id;
 }
 
@@ -1611,21 +1645,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
       metaTitle: metadata.title ?? "",
     };
 
-    const narration = await narrateStory({ metadata, industry, goal, archetype, scores, topFindings: getTopFindings(findings, 10) });
+    const diagnosis = await diagnoseJourney({ metadata, industry, goal, archetype, scores, topFindings: getTopFindings(findings, 10) });
 
-    const auditId = await saveAuditResults(targetUrl.toString(), metadata.domain, industry, scores, findings, domData, goal, archetype, narration);
+    const auditId = await saveAuditResults(targetUrl.toString(), metadata.domain, industry, scores, findings, domData, goal, archetype, diagnosis, html);
 
     return jsonResponse({
       auditId, scores, findings, topFindings, domData,
       currentArchetype: archetype.current,
       targetArchetype: archetype.target,
-      narrativeVerdict: narration?.verdict ?? null,
-      croDiagnosis: narration?.cro_diagnosis ?? null,
-      currentArchetypeDescription: narration?.current_archetype_description ?? null,
-      targetArchetypeDescription: narration?.target_archetype_description ?? null,
-      archetypeGap: narration?.gap_summary ?? null,
-      storyFixes: narration?.story_fixes ?? null,
-      visionRewrite: narration?.vision_rewrite ?? null,
+      narrativeVerdict: diagnosis?.narrative_verdict ?? null,
+      journeyBreaks: diagnosis?.journey_breaks.map((b) => ({
+        journeyStage: b.journey_stage,
+        element: b.element,
+        currentArchetypeSignal: b.current_archetype_signal,
+        conflictSeverity: b.conflict_severity,
+        reason: b.reason,
+      })) ?? null,
     }, 200);
   } catch (error) {
     return jsonResponse({ error: error instanceof Error ? error.message : "Unexpected error" }, 500);
