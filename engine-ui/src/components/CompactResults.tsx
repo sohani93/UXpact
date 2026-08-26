@@ -38,7 +38,11 @@ export default function CompactResults({ score, topFindings, mobileDropoff, atRi
 
       {currentArchetype && targetArchetype && (
         <div className="fade-up" style={{ animationDelay: "0.1s", width: "100%", maxWidth: 520, textAlign: "center", fontSize: 12.5, color: C.navy }}>
-          Your site reads as <span style={{ fontWeight: 700, color: C.violet }}>{currentArchetype}</span>. It should read as <span style={{ fontWeight: 700, color: C.forest }}>{targetArchetype}</span>.
+          {currentArchetype === targetArchetype ? (
+            <>Your site already reads as <span style={{ fontWeight: 700, color: C.forest }}>{targetArchetype}</span> — the right archetype for your goals.</>
+          ) : (
+            <>Your site reads as <span style={{ fontWeight: 700, color: C.violet }}>{currentArchetype}</span>. It should read as <span style={{ fontWeight: 700, color: C.forest }}>{targetArchetype}</span>.</>
+          )}
         </div>
       )}
 
