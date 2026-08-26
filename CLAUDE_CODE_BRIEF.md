@@ -91,7 +91,7 @@ prototypes/
 | checks_flagged | int4 | |
 | critical_issues | int4 | |
 | status | text | |
-| dom_data | jsonb | { h1Text, navLinks, ctaTexts, h2Texts, paragraphTexts } — Blueprint facsimile |
+| dom_data | jsonb | { h1Text, navLinks, ctaTexts, h2Texts, paragraphTexts, testimonialTexts, trustLogoLabels, pricingTiers } — Blueprint facsimile |
 | name | text | Not written by engine — reserved |
 | email | text | Not written by engine — reserved |
 | goal | text | |
@@ -134,6 +134,9 @@ Single values — never ranges, never placeholders:
 - `dom_data.h2Texts` → section subheadings
 - `dom_data.ctaTexts` → CTA button labels
 - `dom_data.paragraphTexts` → body text blocks
+- `dom_data.testimonialTexts` → social proof quotes (blockquote / testimonial|review|quote class match)
+- `dom_data.trustLogoLabels` → client/partner logo alt text (logo|client|partner|brand signal)
+- `dom_data.pricingTiers` → { name, price } pairs from pricing|plan|tier containers
 - Images = neutral placeholder blocks — never flagged as findings
 - `dom_zone` maps each finding to a facsimile section for pin placement
 - Pin colours: Critical = #EF4444, Major = #F59E0B, Minor = #EAB308

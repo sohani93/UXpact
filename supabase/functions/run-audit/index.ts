@@ -102,6 +102,9 @@ interface PageMetadata {
   scriptCount: number;
   internalLinkCount: number;
   externalLinkCount: number;
+  testimonialTexts: string[];
+  trustLogoLabels: string[];
+  pricingTiers: { name: string; price: string }[];
 }
 
 // ─── SUPABASE ───
@@ -279,6 +282,72 @@ function extractPageMetadata(args: { doc: Document; html: string; url: URL; stat
   const youCount = countWordOccurrences(bodyTextContent, ["you", "your", "yours"]);
   const weCount = countWordOccurrences(bodyTextContent, ["we", "our", "us"]);
 
+  // ─── SOCIAL: testimonial/review text ───
+  const testimonialTexts = (() => {
+    const classPattern = /testimonial|review|quote/i;
+    const isTestimonialMatch = (el: Element) => {
+      if (el.tagName.toLowerCase() === "blockquote") return true;
+      const classes = `${el.getAttribute("class") ?? ""} ${el.getAttribute("id") ?? ""}`.toLowerCase();
+      return classPattern.test(classes);
+    };
+    const candidates = Array.from(doc.querySelectorAll("blockquote, [class], [id]")).filter(isTestimonialMatch);
+    const isWrapper = (el: Element) => {
+      const descendants = Array.from(el.querySelectorAll("blockquote, [class], [id]")).filter(isTestimonialMatch);
+      const outermost = descendants.filter((d) => !descendants.some((other) => other !== d && other.contains(d)));
+      return outermost.length >= 2;
+    };
+    const texts: string[] = [];
+    for (const el of candidates) {
+      if (isWrapper(el)) continue;
+      const text = cleanText(el.textContent).slice(0, 220);
+      if (text.length < 15) continue;
+      if (texts.some((t) => t.startsWith(text) || text.startsWith(t))) continue;
+      texts.push(text);
+      if (texts.length >= 5) break;
+    }
+    return texts;
+  })();
+
+  // ─── SOCIAL: trust/client logo labels ───
+  const trustLogoLabels = (() => {
+    const logoPattern = /logo|client|partner|brand/i;
+    const labels: string[] = [];
+    for (const img of Array.from(doc.querySelectorAll("img"))) {
+      const alt = cleanText(img.getAttribute("alt") ?? "");
+      const src = img.getAttribute("src") ?? "";
+      const imgClass = img.getAttribute("class") ?? "";
+      const ancestorClass = `${img.parentElement?.getAttribute("class") ?? ""} ${img.parentElement?.parentElement?.getAttribute("class") ?? ""}`;
+      const signal = `${src} ${alt} ${imgClass} ${ancestorClass}`;
+      if (!logoPattern.test(signal)) continue;
+      if (alt.length === 0 || alt.length > 40 || labels.includes(alt)) continue;
+      labels.push(alt);
+      if (labels.length >= 6) break;
+    }
+    return labels;
+  })();
+
+  // ─── PRICING: tier name + price text ───
+  const pricingTiers = (() => {
+    const pricingPattern = /pricing|plan|tier/i;
+    const priceRegex = /[£$€]\s?\d[\d,.]*/;
+    const matchesPricing = (el: Element) => pricingPattern.test(`${el.getAttribute("class") ?? ""} ${el.getAttribute("id") ?? ""}`.toLowerCase());
+    const containers = Array.from(doc.querySelectorAll("[class], [id]")).filter((el) => {
+      if (!matchesPricing(el)) return false;
+      return !Array.from(el.querySelectorAll("[class], [id]")).some((d) => matchesPricing(d) && priceRegex.test(d.textContent ?? ""));
+    });
+    const tiers: { name: string; price: string }[] = [];
+    for (const el of containers) {
+      const priceMatch = el.textContent?.match(priceRegex);
+      if (!priceMatch) continue;
+      const heading = el.querySelector("h1, h2, h3, h4, h5, h6, [class*='name' i], [class*='title' i]");
+      const name = cleanText(heading?.textContent) || cleanText(el.textContent).slice(0, 30);
+      if (!name) continue;
+      tiers.push({ name, price: priceMatch[0] });
+      if (tiers.length >= 4) break;
+    }
+    return tiers;
+  })();
+
   return {
     url: url.toString(), domain: url.hostname, statusCode, title, titleLength: title?.length ?? 0,
     metaDescription, metaDescriptionLength: metaDescription?.length ?? 0, canonical,
@@ -295,6 +364,7 @@ function extractPageMetadata(args: { doc: Document; html: string; url: URL; stat
     formCount: doc.querySelectorAll("form").length, buttonTexts, inputFields, headers,
     hasHttps: url.protocol === "https:", youCount, weCount,
     youWeRatio: weCount === 0 ? (youCount > 0 ? 99 : 0) : youCount / weCount,
+    testimonialTexts, trustLogoLabels, pricingTiers,
   };
 }
 
@@ -1643,6 +1713,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       imagesCount: metadata.imageCount,
       hasForm: metadata.formCount > 0,
       metaTitle: metadata.title ?? "",
+      testimonialTexts: metadata.testimonialTexts.slice(0, 5),
+      trustLogoLabels: metadata.trustLogoLabels.slice(0, 6),
+      pricingTiers: metadata.pricingTiers.slice(0, 4),
     };
 
     const diagnosis = await diagnoseJourney({ metadata, industry, goal, archetype, scores, topFindings: getTopFindings(findings, 10) });
