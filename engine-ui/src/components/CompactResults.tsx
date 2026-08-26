@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { useState } from "react";
 import ArcGauge from "./ArcGauge";
-import type { Archetype, Finding } from "../lib/ui-types";
+import type { Finding, JourneyBreak, JourneyStage } from "../lib/ui-types";
 
 const C = { navy: "#0B1C48", forest: "#186132", mint: "#14D571", violet: "#5B61F4", muted: "#6B7280", dim: "#9CA3AF" };
 
@@ -11,6 +11,39 @@ const SEV_DOT: Record<string, string> = {
   minor: "#EAB308",
 };
 
+const JOURNEY_STAGE_LABELS: Record<JourneyStage, string> = {
+  arrival: "Arrival",
+  understanding: "Understanding",
+  "trust-building": "Trust",
+  decision: "Decision",
+  action: "Action",
+};
+const JOURNEY_STAGE_ORDER: JourneyStage[] = ["arrival", "understanding", "trust-building", "decision", "action"];
+
+function JourneyStrip({ journeyBreaks }: { journeyBreaks: JourneyBreak[] }) {
+  const worst = [...journeyBreaks].sort((a, b) => b.conflictSeverity - a.conflictSeverity)[0];
+  if (!worst) return null;
+  return (
+    <div className="fade-up" style={{ animationDelay: "0.1s", width: "100%", maxWidth: 520 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 8 }}>
+        {JOURNEY_STAGE_ORDER.map((stage, i) => {
+          const active = stage === worst.journeyStage;
+          return (
+            <div key={stage} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                <div style={{ width: active ? 10 : 7, height: active ? 10 : 7, borderRadius: "50%", background: active ? C.violet : "rgba(11,28,72,0.15)", transition: "all 0.2s" }} />
+                <span style={{ fontSize: 9, fontWeight: active ? 700 : 500, color: active ? C.violet : C.dim, whiteSpace: "nowrap" }}>{JOURNEY_STAGE_LABELS[stage]}</span>
+              </div>
+              {i < JOURNEY_STAGE_ORDER.length - 1 && <div style={{ width: 14, height: 1, background: "rgba(11,28,72,0.1)" }} />}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ textAlign: "center", fontSize: 12, color: C.navy, lineHeight: 1.5, padding: "0 8px" }}>{worst.reason}</div>
+    </div>
+  );
+}
+
 type CompactResultsProps = {
   score: number;
   topFindings: Finding[];
@@ -19,11 +52,10 @@ type CompactResultsProps = {
   onAccess: () => void;
   animated?: boolean;
   narrativeVerdict?: string | null;
-  currentArchetype?: Archetype | null;
-  targetArchetype?: Archetype | null;
+  journeyBreaks?: JourneyBreak[] | null;
 };
 
-export default function CompactResults({ score, topFindings, mobileDropoff, atRisk, onAccess, animated = true, narrativeVerdict, currentArchetype, targetArchetype }: CompactResultsProps) {
+export default function CompactResults({ score, topFindings, mobileDropoff, atRisk, onAccess, animated = true, narrativeVerdict, journeyBreaks }: CompactResultsProps) {
   const [hovCTA, setHovCTA] = useState(false);
   const top = topFindings.slice(0, 3);
 
@@ -36,15 +68,7 @@ export default function CompactResults({ score, topFindings, mobileDropoff, atRi
         </div>
       )}
 
-      {currentArchetype && targetArchetype && (
-        <div className="fade-up" style={{ animationDelay: "0.1s", width: "100%", maxWidth: 520, textAlign: "center", fontSize: 12.5, color: C.navy }}>
-          {currentArchetype === targetArchetype ? (
-            <>Your site already reads as <span style={{ fontWeight: 700, color: C.forest }}>{targetArchetype}</span> — the right archetype for your goals.</>
-          ) : (
-            <>Your site reads as <span style={{ fontWeight: 700, color: C.violet }}>{currentArchetype}</span>. It should read as <span style={{ fontWeight: 700, color: C.forest }}>{targetArchetype}</span>.</>
-          )}
-        </div>
-      )}
+      {journeyBreaks && journeyBreaks.length > 0 && <JourneyStrip journeyBreaks={journeyBreaks} />}
 
       <div className="fade-up" style={{ animationDelay: "0s" }}>
         <ArcGauge score={score} animated={animated} />

@@ -71,6 +71,12 @@ const SEV_DOT: Record<string, string> = {
   critical: "#EF4444", major: "#F59E0B", minor: "#EAB308",
 };
 
+const JOURNEY_STAGE_ORDER = ["arrival", "understanding", "trust-building", "decision", "action"];
+const JOURNEY_STAGE_LABELS: Record<string, string> = {
+  arrival: "Arrival", understanding: "Understanding", "trust-building": "Trust-building", decision: "Decision", action: "Action",
+};
+const severityColor = (s: number) => s >= 4 ? "#DC2626" : s >= 3 ? "#D97706" : C.violet;
+
 // ── Helpers ────────────────────────────────────────────────────────────
 const getScoreColor = (s: number) => s >= 70 ? C.mint : s >= 40 ? "#F59E0B" : "#EF4444";
 const getSevBadge = (s: number) => {
@@ -111,6 +117,7 @@ function formatDate(d?: string): string {
 function useAuditData(auditId: string) {
   const [auditRow, setAuditRow] = useState<any>(null);
   const [findings, setFindings] = useState<any[]>([]);
+  const [journeyBreaks, setJourneyBreaks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -127,13 +134,12 @@ function useAuditData(auditId: string) {
           setAuditRow({
             id: c.auditId, domain: c.domain, score: c.score, industry: "saas", created_at: c.createdAt,
             narrative_verdict: c.narrativeVerdict ?? null,
-            cro_diagnosis: c.croDiagnosis ?? null,
             current_archetype: c.currentArchetype ?? null,
             target_archetype: c.targetArchetype ?? null,
-            archetype_gap: c.archetypeGap ?? null,
             story_fixes: c.storyFixes ?? null,
             vision_rewrite: c.visionRewrite ?? null,
           });
+          setJourneyBreaks(c.journeyBreaks ?? []);
           setFindings((c.findings ?? []).map((f: any) => ({
             id: f.id, check_id: f.id, name: f.name, severity: f.severity,
             finding: f.finding, fix: f.fix, ai_prompt: f.aiPrompt,
@@ -146,9 +152,10 @@ function useAuditData(auditId: string) {
 
       // Always fetch fresh from Supabase
       const supabase = getSupabase();
-      const [{ data: auditData, error: auditErr }, { data: findingsData, error: findingsErr }] = await Promise.all([
+      const [{ data: auditData, error: auditErr }, { data: findingsData, error: findingsErr }, { data: journeyData }] = await Promise.all([
         supabase.from("audits").select("*").eq("id", auditId).maybeSingle(),
         supabase.from("audit_findings").select("*").eq("audit_id", auditId),
+        supabase.from("archetype_consistency_scores").select("*").eq("audit_id", auditId),
       ]);
 
       if (auditErr || findingsErr) {
@@ -164,12 +171,17 @@ function useAuditData(auditId: string) {
 
       setAuditRow(auditData);
       setFindings(findingsData ?? []);
+      setJourneyBreaks((journeyData ?? []).map((j: any) => ({
+        journeyStage: j.journey_stage, element: j.element,
+        currentArchetypeSignal: j.current_archetype_signal,
+        conflictSeverity: j.conflict_severity, reason: j.reason,
+      })));
       setLoading(false);
     };
     void load();
   }, [auditId]);
 
-  return { auditRow, findings, loading, error };
+  return { auditRow, findings, journeyBreaks, loading, error };
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────
@@ -347,7 +359,7 @@ function UXProCard({ auditId }: { auditId: string }) {
   );
 }
 
-function ExpandingCTA({ onBlueprint, onVision }) {
+function ExpandingCTA({ onBlueprint }) {
   const [expanded, setExpanded] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -356,8 +368,7 @@ function ExpandingCTA({ onBlueprint, onVision }) {
     obs.observe(el); return () => obs.disconnect();
   }, []);
   const ctaItems = [
-    { ibg: "linear-gradient(145deg,#818CF8,#5B61F4)", t: "Conversion Blueprint",      d: "Every finding pinned to your page with AI-ready fix prompts.", onClick: onBlueprint },
-    { ibg: "linear-gradient(145deg,#186132,#148C59)", t: "UX Vision",                 d: "See the story your site should be telling — side by side with what it tells today.", onClick: onVision },
+    { ibg: "linear-gradient(145deg,#818CF8,#5B61F4)", t: "Conversion Blueprint",      d: "Every finding pinned to your page — plus a generative rebuild you can pick, preview, and deploy live.", onClick: onBlueprint },
     { ibg: "linear-gradient(145deg,#14D571,#148C59)", t: "Pulse Tracker",             d: "Chrome & Edge extension. Check off fixes as you go." },
   ];
   return (
@@ -376,7 +387,7 @@ function ExpandingCTA({ onBlueprint, onVision }) {
           <div style={{ fontSize: 24, marginBottom: 8 }}>💜</div>
           <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 20, fontWeight: 700, color: "#fff", margin: "0 0 6px" }}>You're all set.</h2>
           <p style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", margin: "0 0 20px" }}>Your full audit pack is ready to go.</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, maxWidth: 680, margin: "0 auto" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 460, margin: "0 auto" }}>
             {ctaItems.map((ct, i) => <CTACard key={i} ct={ct} />)}
           </div>
         </div>
@@ -386,7 +397,7 @@ function ExpandingCTA({ onBlueprint, onVision }) {
 }
 
 export default function FullReport({ auditId }: { auditId: string }) {
-  const { auditRow, findings, loading, error } = useAuditData(auditId);
+  const { auditRow, findings, journeyBreaks, loading, error } = useAuditData(auditId);
 
   // ── Derived data ───────────────────────────────────────────────────
   const nonManual = findings.filter(f =>
@@ -486,11 +497,6 @@ export default function FullReport({ auditId }: { auditId: string }) {
 
   const goToBlueprint = () => {
     window.history.pushState({}, "", `/blueprint/${auditId}`);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  };
-
-  const goToVision = () => {
-    window.history.pushState({}, "", `/vision/${auditId}`);
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
 
@@ -639,7 +645,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
               const subText = hasNarrative ? (auditRow.cro_diagnosis || diagSub) : diagSub;
               return (
                 <>
-                  <div style={{ borderRadius: 12, padding: "22px 24px", background: "linear-gradient(135deg,#186132 0%,#148C59 60%,#14D571 100%)", marginBottom: hasNarrative && auditRow?.current_archetype ? 12 : 20 }}>
+                  <div style={{ borderRadius: 12, padding: "22px 24px", background: "linear-gradient(135deg,#186132 0%,#148C59 60%,#14D571 100%)", marginBottom: journeyBreaks && journeyBreaks.length > 0 ? 12 : 20 }}>
                     <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: "rgba(255,255,255,0.6)", marginBottom: 10 }}>{headline}</div>
                     <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", lineHeight: 1.5, margin: "0 0 8px", letterSpacing: "-0.2px" }}>{mainText}</p>
                     <p style={{ fontSize: 12.5, color: "rgba(255,255,255,0.82)", lineHeight: 1.65, margin: "0 0 6px" }}>{subText}</p>
@@ -648,17 +654,30 @@ export default function FullReport({ auditId }: { auditId: string }) {
                     </p>
                     <CatScores cats={cats} />
                   </div>
-                  {auditRow?.current_archetype && auditRow?.target_archetype && (
+                  {journeyBreaks && journeyBreaks.length > 0 && (
                     <div style={{ borderRadius: 12, padding: "18px 24px", background: "rgba(91,97,244,0.06)", border: "1px solid rgba(91,97,244,0.15)", marginBottom: 20 }}>
-                      <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: C.violet, marginBottom: 10 }}>Archetype Diagnosis</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-                        <span style={{ padding: "3px 10px", borderRadius: 6, background: "#E0E7FF", color: C.navy, fontSize: 12, fontWeight: 700 }}>{auditRow.current_archetype}</span>
-                        <span style={{ color: C.dim, fontSize: 13 }}>→</span>
-                        <span style={{ padding: "3px 10px", borderRadius: 6, background: "#D1FAE5", color: C.navy, fontSize: 12, fontWeight: 700 }}>{auditRow.target_archetype}</span>
-                      </div>
-                      {auditRow.archetype_gap && (
-                        <p style={{ fontSize: 12.5, color: C.navy, fontWeight: 600, lineHeight: 1.6, margin: 0 }}>{auditRow.archetype_gap}</p>
+                      <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: C.violet, marginBottom: 4 }}>Where the journey breaks down</div>
+                      {auditRow?.current_archetype && auditRow?.target_archetype && (
+                        <div style={{ fontSize: 11, color: C.muted, marginBottom: 12 }}>
+                          Using <span style={{ fontWeight: 700, color: C.navy }}>{auditRow.current_archetype}</span> → <span style={{ fontWeight: 700, color: C.navy }}>{auditRow.target_archetype}</span> as the lens
+                        </div>
                       )}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {[...journeyBreaks]
+                          .sort((a, b) => JOURNEY_STAGE_ORDER.indexOf(a.journeyStage) - JOURNEY_STAGE_ORDER.indexOf(b.journeyStage))
+                          .map((jb, i) => (
+                            <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                              <div style={{ width: 6, height: 6, borderRadius: "50%", background: severityColor(jb.conflictSeverity), marginTop: 6, flexShrink: 0 }} />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.violet }}>{JOURNEY_STAGE_LABELS[jb.journeyStage] ?? jb.journeyStage}</span>
+                                  {jb.element && <span style={{ fontSize: 11, fontWeight: 600, color: C.navy }}>{jb.element}</span>}
+                                </div>
+                                <p style={{ fontSize: 12.5, color: "#374151", lineHeight: 1.55, margin: 0 }}>{jb.reason}</p>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
                     </div>
                   )}
                 </>
@@ -782,7 +801,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
 
           {/* Card 5 — ExpandingCTA (sticky) */}
           <div style={{ position: "sticky", top: 52, zIndex: 40, marginBottom: 0 }}>
-            <ExpandingCTA onBlueprint={goToBlueprint} onVision={goToVision} />
+            <ExpandingCTA onBlueprint={goToBlueprint} />
           </div>
 
           <div style={{ textAlign: "center", padding: "24px 0 40px" }}>
