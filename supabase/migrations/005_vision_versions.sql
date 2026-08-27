@@ -3,7 +3,7 @@
 -- switch between prior generations without re-calling the LLM.
 --
 -- Already live in production (deployed directly ahead of this file being
--- tracked, same pattern as 004/005) — IF NOT EXISTS makes this a no-op there
+-- tracked, same pattern as 004) — IF NOT EXISTS makes this a no-op there
 -- and a real create on a fresh database or Supabase preview branch.
 
 CREATE TABLE IF NOT EXISTS vision_versions (
