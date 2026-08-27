@@ -171,8 +171,7 @@ export default function LoadingState({ url, goals, auditData, onAccess, onError 
               onAccess={onAccess}
               animated={anim}
               narrativeVerdict={auditData.narrativeVerdict}
-              currentArchetype={auditData.currentArchetype}
-              targetArchetype={auditData.targetArchetype}
+              journeyBreaks={auditData.journeyBreaks}
             />
           )}
         </div>

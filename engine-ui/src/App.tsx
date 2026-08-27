@@ -4,7 +4,6 @@ import LoadingState from "./components/LoadingState";
 import FullReport from "./pages/FullReport";
 import ConversionBlueprint from "./pages/Blueprint";
 import ProReaudit from "./pages/ProReaudit";
-import ProVision from "./pages/ProVision";
 import ProPlugins from "./pages/ProPlugins";
 import type { AuditData, AuditRequestFormData, Finding } from "./lib/ui-types";
 
@@ -23,8 +22,14 @@ function App() {
   if (path.startsWith("/report/"))    return <FullReport auditId={path.split("/")[2]} />;
   if (path.startsWith("/blueprint/")) return <ConversionBlueprint auditId={path.split("/")[2]} />;
   if (path.startsWith("/reaudit/"))   return <ProReaudit auditId={path.split("/")[2]} />;
-  if (path.startsWith("/vision/"))    return <ProVision auditId={path.split("/")[2]} />;
   if (path.startsWith("/plugins/"))   return <ProPlugins auditId={path.split("/")[2]} />;
+  // Vision retired as a standalone page — its sandbox now lives inside Blueprint's
+  // Restructured toggle. Redirect old links rather than 404.
+  if (path.startsWith("/vision/")) {
+    const auditId = path.split("/")[2];
+    window.history.replaceState({}, "", `/blueprint/${auditId}`);
+    return <ConversionBlueprint auditId={auditId} />;
+  }
   return <AuditPage />;
 }
 
@@ -49,7 +54,7 @@ function AuditPage() {
       if (!response.ok || json.error) { setMode("input"); return; }
       const findings: Finding[] = (json.findings ?? []).map((f: any) => ({ id: f.id, name: f.name, severity: f.severity, finding: f.finding, fix: f.fix, aiPrompt: f.aiPrompt, pass: Boolean(f.pass), glossaryTerms: f.glossaryTerms ?? [], domZone: f.domZone ?? "body-copy" }));
       const topFindings: Finding[] = (json.topFindings ?? []).map((f: any) => ({ id: f.id, name: f.name, severity: f.severity, finding: f.finding, fix: f.fix, aiPrompt: f.aiPrompt, pass: Boolean(f.pass), glossaryTerms: f.glossaryTerms ?? [], domZone: f.domZone ?? "body-copy" }));
-      const auditData: AuditData = { auditId: json.auditId, url: normalisedUrl, domain: parsedUrl.hostname, score: Number(json.scores?.total ?? 0), criticalIssues: Number(json.scores?.criticalIssues ?? 0), createdAt: new Date().toISOString(), findings, topFindings, domData: json.domData ?? { navLinks: [], h1Text: parsedUrl.hostname, h2Texts: [], h3Texts: [], ctaTexts: [], paragraphTexts: [], imagesCount: 0, hasForm: false }, currentArchetype: json.currentArchetype ?? null, targetArchetype: json.targetArchetype ?? null, narrativeVerdict: json.narrativeVerdict ?? null, croDiagnosis: json.croDiagnosis ?? null, currentArchetypeDescription: json.currentArchetypeDescription ?? null, targetArchetypeDescription: json.targetArchetypeDescription ?? null, archetypeGap: json.archetypeGap ?? null, storyFixes: json.storyFixes ?? null, visionRewrite: json.visionRewrite ?? null };
+      const auditData: AuditData = { auditId: json.auditId, url: normalisedUrl, domain: parsedUrl.hostname, score: Number(json.scores?.total ?? 0), criticalIssues: Number(json.scores?.criticalIssues ?? 0), createdAt: new Date().toISOString(), findings, topFindings, domData: json.domData ?? { navLinks: [], h1Text: parsedUrl.hostname, h2Texts: [], h3Texts: [], ctaTexts: [], paragraphTexts: [], imagesCount: 0, hasForm: false }, currentArchetype: json.currentArchetype ?? null, targetArchetype: json.targetArchetype ?? null, narrativeVerdict: json.narrativeVerdict ?? null, journeyBreaks: json.journeyBreaks ?? null, storyFixes: json.storyFixes ?? null, visionRewrite: json.visionRewrite ?? null };
       sessionStorage.setItem(`audit:${auditData.auditId}`, JSON.stringify(auditData));
       setPendingData(auditData);
     } catch { setMode("input"); }
