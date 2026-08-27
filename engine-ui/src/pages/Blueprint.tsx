@@ -1,5 +1,6 @@
 // @ts-nocheck
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { getSupabase } from "../lib/supabase";
 
 const C = {
   bg: "#EEF1F5",
@@ -22,6 +23,7 @@ function getSevPts(sev: string): number {
 const CHIP_KEYFRAMES = `
 @keyframes chipPop{0%{transform:scale(0.8)}60%{transform:scale(1.12)}100%{transform:scale(1.05)}}
 @keyframes countUp{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
 `;
 
 const SEV = {
@@ -54,6 +56,58 @@ const ZONE_MAP: Record<string, string> = {
 function normalizeZone(z: string): string {
   return ZONE_MAP[(z ?? "").toLowerCase().trim()] ?? "features";
 }
+
+const ZONE_LABELS: Record<string, string> = {
+  nav: "Nav", hero: "Hero", features: "Features", social: "Customers", pricing: "Pricing", cta2: "Bottom CTA",
+};
+
+// ── Layer 2 — Vision sandbox (relocated from the retired /vision/:auditId page) ──
+const ARCHETYPES = ["Hero", "Sage", "Outlaw", "Caregiver", "Creator", "Ruler"] as const;
+const DEFAULT_SECTION_ORDER = ["hero", "features", "social", "pricing", "cta2"];
+const JOURNEY_STAGE_ORDER = ["arrival", "understanding", "trust-building", "decision", "action"];
+const JOURNEY_STAGE_LABELS: Record<string, string> = {
+  arrival: "Arrival", understanding: "Understanding", "trust-building": "Trust-building", decision: "Decision", action: "Action",
+};
+const JOURNEY_STAGE_TO_ZONE: Record<string, string> = {
+  arrival: "hero", understanding: "features", "trust-building": "social", decision: "pricing", action: "cta2",
+};
+
+const GENERATION_STEPS = [
+  "Parsing your site's real structure…",
+  "Reordering sections…",
+  "Rewriting copy for the story…",
+  "Rendering preview…",
+];
+
+function zoneForJourneyBreak(jb: { element?: string; journeyStage?: string }): string {
+  const text = (jb.element ?? "").toLowerCase();
+  if (/testimonial|trust|social proof|review|logo/.test(text)) return "social";
+  if (/pricing|price|plan|cost/.test(text)) return "pricing";
+  if (/\bcta\b|bottom cta|call.to.action|objection/.test(text)) return "cta2";
+  if (/hero|headline|\bh1\b/.test(text)) return "hero";
+  if (/feature/.test(text)) return "features";
+  return JOURNEY_STAGE_TO_ZONE[jb.journeyStage ?? ""] ?? "features";
+}
+
+function seedCopySelectionsFromJourney(journeyBreaks: any[]): Record<string, string> {
+  const seeded: Record<string, string> = {};
+  journeyBreaks.forEach((jb) => {
+    const zone = zoneForJourneyBreak(jb);
+    if (!seeded[zone]) seeded[zone] = jb.reason || "Address this journey break.";
+  });
+  DEFAULT_SECTION_ORDER.forEach((zone) => {
+    if (!seeded[zone]) seeded[zone] = "Keep this section's current copy.";
+  });
+  return seeded;
+}
+
+const embedSnippetFor = (auditId: string) =>
+  `<script src="https://uxpact.pages.dev/pulse-pro.js" data-uxpact-audit="${auditId}" async></script>`;
+
+const GENERATE_VISION_ENDPOINT =
+  import.meta.env.VITE_GENERATE_VISION_ENDPOINT ?? "https://oxminualycvnxofoevjs.supabase.co/functions/v1/generate-vision";
+const DEPLOY_VARIANT_ENDPOINT =
+  import.meta.env.VITE_DEPLOY_VARIANT_ENDPOINT ?? "https://oxminualycvnxofoevjs.supabase.co/functions/v1/deploy-variant";
 
 // ── Pill ──────────────────────────────────────────────────────────────
 function Pill({ text, v }) {
@@ -402,48 +456,111 @@ function PulseFooter({ totalRecovered = 0 }: { totalRecovered?: number }) {
 // ── Main ──────────────────────────────────────────────────────────────
 export default function ConversionBlueprint({ auditId }: { auditId: string }) {
   const [activeId, setActiveId] = useState(null);
+  const [facView, setFacView] = useState<"current" | "restructured">("current");
   const [auditData, setAuditData] = useState<any>(null);
   const [findings, setFindings] = useState<any[]>([]);
+  const [journeyBreaks, setJourneyBreaks] = useState<any[]>([]);
   const [recovered, setRecovered] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Vision sandbox state (relocated from the retired /vision/:auditId page)
+  const [versions, setVersions] = useState<any[]>([]);
+  const [archetype, setArchetype] = useState<string>("");
+  const [sectionOrder, setSectionOrder] = useState<string[]>(DEFAULT_SECTION_ORDER);
+  const [copySelections, setCopySelections] = useState<Record<string, string>>({});
+  const [generating, setGenerating] = useState(false);
+  const [genStepIndex, setGenStepIndex] = useState(0);
+  const [generatedHtml, setGeneratedHtml] = useState<string | null>(null);
+  const [genError, setGenError] = useState<string | null>(null);
+  const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
+  const [isLive, setIsLive] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
+  const [copiedSnippet, setCopiedSnippet] = useState(false);
+  const [driftEvents, setDriftEvents] = useState<any[]>([]);
+  const [activeVariants, setActiveVariants] = useState<any[]>([]);
+  const [variantEventCounts, setVariantEventCounts] = useState<Record<string, { serves: number; converts: number }>>({});
+  const [addingLiveTest, setAddingLiveTest] = useState(false);
+  const stepTimerRef = useRef<number | null>(null);
+
+  // Layer 4 — Vision Pro: refetches every active variant for this audit
+  // (there can be more than one during a live bandit test) plus their
+  // serve/convert counts, so the panel below always reflects real state
+  // after a deploy, rollback, or added test arm.
+  const refreshActiveVariants = async () => {
+    const supabase = getSupabase();
+    const { data: activeRows } = await supabase
+      .from("deployed_variants")
+      .select("id, traffic_weight")
+      .eq("audit_id", auditId)
+      .eq("is_active", true);
+    const rows = activeRows ?? [];
+    setIsLive(rows.length > 0);
+    setActiveVariants(rows);
+    if (rows.length === 0) {
+      setVariantEventCounts({});
+      return;
+    }
+    const ids = rows.map((v: any) => v.id);
+    const { data: eventRows } = await supabase
+      .from("variant_events")
+      .select("deployed_variant_id, event_type")
+      .in("deployed_variant_id", ids);
+    const counts: Record<string, { serves: number; converts: number }> = {};
+    ids.forEach((id: string) => { counts[id] = { serves: 0, converts: 0 }; });
+    (eventRows ?? []).forEach((ev: any) => {
+      const entry = counts[ev.deployed_variant_id];
+      if (!entry) return;
+      if (ev.event_type === "serve") entry.serves += 1;
+      else if (ev.event_type === "convert") entry.converts += 1;
+    });
+    setVariantEventCounts(counts);
+  };
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       setLoadError(null);
       const cached = sessionStorage.getItem(`audit:${auditId}`);
-      const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      if (!anon) {
-        setLoadError("Supabase isn't configured — can't load this blueprint.");
-        setLoading(false);
-        return;
-      }
-
       try {
-        // Fetch audit row
-        const auditRes = await fetch(
-          `https://oxminualycvnxofoevjs.supabase.co/rest/v1/audits?id=eq.${auditId}&select=*`,
-          { headers: { apikey: anon, Authorization: `Bearer ${anon}` } }
-        );
-        if (!auditRes.ok) throw new Error("Failed to load audit data.");
-        const auditRows = await auditRes.json();
-        if (auditRows?.[0]) {
-          setAuditData(auditRows[0]);
-        } else if (cached) {
-          try { setAuditData(JSON.parse(cached)); } catch {}
-        } else {
-          throw new Error("Audit not found.");
-        }
+        const supabase = getSupabase();
+        const [
+          { data: auditRows, error: auditErr },
+          { data: findingsRows, error: findingsErr },
+          { data: journeyRows },
+          { data: versionRows },
+          { data: driftRows },
+        ] = await Promise.all([
+          supabase.from("audits").select("*").eq("id", auditId),
+          supabase.from("audit_findings").select("*").eq("audit_id", auditId),
+          supabase.from("archetype_consistency_scores").select("*").eq("audit_id", auditId),
+          supabase.from("vision_versions").select("*").eq("audit_id", auditId).order("version_number", { ascending: true }),
+          supabase.from("drift_events").select("*").eq("audit_id", auditId).order("detected_at", { ascending: false }),
+        ]);
+        await refreshActiveVariants();
 
-        // Fetch findings
-        const findingsRes = await fetch(
-          `https://oxminualycvnxofoevjs.supabase.co/rest/v1/audit_findings?audit_id=eq.${auditId}&select=*`,
-          { headers: { apikey: anon, Authorization: `Bearer ${anon}` } }
-        );
-        if (!findingsRes.ok) throw new Error("Failed to load findings.");
-        const findingsRows = await findingsRes.json();
+        if (auditErr) throw new Error(auditErr.message);
+        let audit = auditRows?.[0] ?? null;
+        if (!audit && cached) {
+          try { audit = JSON.parse(cached); } catch {}
+        }
+        if (!audit) throw new Error("Audit not found.");
+        setAuditData(audit);
+
+        if (findingsErr) throw new Error(findingsErr.message);
         setFindings(findingsRows ?? []);
+
+        const mappedJourney = (journeyRows ?? []).map((j: any) => ({
+          journeyStage: j.journey_stage, element: j.element,
+          currentArchetypeSignal: j.current_archetype_signal,
+          conflictSeverity: j.conflict_severity, reason: j.reason,
+        }));
+        setJourneyBreaks(mappedJourney);
+        setVersions(versionRows ?? []);
+        setDriftEvents(driftRows ?? []);
+        setArchetype(audit.target_archetype || "Hero");
+        setCopySelections(seedCopySelectionsFromJourney(mappedJourney));
       } catch (err) {
         setLoadError(err instanceof Error ? err.message : "Failed to load blueprint data.");
       } finally {
@@ -495,6 +612,151 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
   const activeZone = activeFinding?.zone ?? null;
   const isRecoveredFn = (id: number | string) => recovered[String(id)] ?? false;
   const pinProps = { activeId, setActiveId, findings: activeFindings, isRecovered: isRecoveredFn };
+
+  // ── Vision sandbox handlers ──────────────────────────────────────────
+  const moveSection = (index: number, dir: -1 | 1) => {
+    setSectionOrder((order) => {
+      const next = [...order];
+      const target = index + dir;
+      if (target < 0 || target >= next.length) return order;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  const startStagedSteps = () => {
+    setGenStepIndex(0);
+    let i = 0;
+    stepTimerRef.current = window.setInterval(() => {
+      i = Math.min(i + 1, GENERATION_STEPS.length - 1);
+      setGenStepIndex(i);
+    }, 1400);
+  };
+  const stopStagedSteps = () => {
+    if (stepTimerRef.current) {
+      window.clearInterval(stepTimerRef.current);
+      stepTimerRef.current = null;
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!auditData?.raw_html) return;
+    setGenerating(true);
+    setGenError(null);
+    startStagedSteps();
+    try {
+      const response = await fetch(GENERATE_VISION_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auditId, archetype, sectionOrder, copySelections, rawHtml: auditData.raw_html }),
+      });
+      const json = await response.json();
+      if (!response.ok || json.error) {
+        setGenError(json.message || "Generation failed. Try again.");
+        setGeneratedHtml(null);
+      } else {
+        setGeneratedHtml(json.html);
+        setActiveVersionId(null);
+      }
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : "Couldn't reach the Vision service.");
+      setGeneratedHtml(null);
+    } finally {
+      stopStagedSteps();
+      setGenerating(false);
+    }
+  };
+
+  const handleSaveVersion = async () => {
+    if (!generatedHtml) return;
+    const supabase = getSupabase();
+    const nextVersionNumber = (versions[versions.length - 1]?.version_number ?? 0) + 1;
+    const { data, error } = await supabase
+      .from("vision_versions")
+      .insert({ audit_id: auditId, version_number: nextVersionNumber, archetype, section_order: sectionOrder, copy_selections: copySelections, html: generatedHtml })
+      .select("*")
+      .single();
+    if (!error && data) {
+      setVersions((v) => [...v, data]);
+      setActiveVersionId(data.id);
+    }
+  };
+
+  const handleSelectVersion = (v: any) => {
+    setGeneratedHtml(v.html);
+    setActiveVersionId(v.id);
+    setGenError(null);
+    setArchetype(v.archetype || archetype);
+    if (Array.isArray(v.section_order) && v.section_order.length) setSectionOrder(v.section_order);
+    if (v.copy_selections && typeof v.copy_selections === "object") setCopySelections(v.copy_selections);
+  };
+
+  const handleDeploy = async () => {
+    if (!generatedHtml || !auditData?.raw_html) return;
+    setDeploying(true);
+    setDeployError(null);
+    try {
+      const response = await fetch(DEPLOY_VARIANT_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auditId, domain: auditData.domain, generatedHtml, rawHtml: auditData.raw_html, zones: sectionOrder }),
+      });
+      const json = await response.json();
+      if (!response.ok || json.error) {
+        setDeployError(json.message || "Deploy failed. Try again.");
+      } else {
+        await refreshActiveVariants();
+      }
+    } catch (err) {
+      setDeployError(err instanceof Error ? err.message : "Couldn't reach the deploy service.");
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  // Layer 4 — Vision Pro: deploys this generated variant *alongside* whatever
+  // is already active, instead of replacing it, so a live bandit test has
+  // more than one arm. deploy-variant rebalances all active variants to
+  // equal traffic_weight when multiArmed is set.
+  const handleAddLiveTestVariant = async () => {
+    if (!generatedHtml || !auditData?.raw_html) return;
+    setAddingLiveTest(true);
+    setDeployError(null);
+    try {
+      const response = await fetch(DEPLOY_VARIANT_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auditId, domain: auditData.domain, generatedHtml, rawHtml: auditData.raw_html, zones: sectionOrder, multiArmed: true }),
+      });
+      const json = await response.json();
+      if (!response.ok || json.error) {
+        setDeployError(json.message || "Couldn't add this as a live test variant. Try again.");
+      } else {
+        await refreshActiveVariants();
+      }
+    } catch (err) {
+      setDeployError(err instanceof Error ? err.message : "Couldn't reach the deploy service.");
+    } finally {
+      setAddingLiveTest(false);
+    }
+  };
+
+  const handleRollback = async () => {
+    const supabase = getSupabase();
+    await supabase.from("deployed_variants").update({ is_active: false }).eq("audit_id", auditId).eq("is_active", true);
+    await refreshActiveVariants();
+    setDeployError(null);
+  };
+
+  const copySnippet = () => {
+    navigator.clipboard.writeText(embedSnippetFor(auditId));
+    setCopiedSnippet(true);
+    setTimeout(() => setCopiedSnippet(false), 1500);
+  };
+
+  const sortedJourneyBreaks = [...journeyBreaks].sort(
+    (a, b) => JOURNEY_STAGE_ORDER.indexOf(a.journeyStage) - JOURNEY_STAGE_ORDER.indexOf(b.journeyStage)
+  );
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden" }}>
@@ -560,276 +822,542 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
               ];
               return pills.map((p, i) => <Pill key={i} text={p.text} v={p.v} />);
             })()}
+            {isLive && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 12px", borderRadius: 6, background: "rgba(20,140,89,0.1)" }}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.emerald }} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.emerald, fontFamily: "'Space Grotesk', sans-serif" }}>Live</span>
+              </div>
+            )}
           </div>
-          {/* Severity counts — right side */}
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            {[
-              { sev: "Critical", count: activeFindings.filter(f => f.sev === "Critical").length, dot: "#EF4444" },
-              { sev: "Major",    count: activeFindings.filter(f => f.sev === "Major").length,    dot: "#F59E0B" },
-              { sev: "Minor",    count: activeFindings.filter(f => f.sev === "Minor").length,    dot: "#EAB308" },
-            ].map(({ sev, count, dot }) => (
-              <div key={sev} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <div style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flexShrink: 0 }} />
-                <span style={{ fontSize: 12, fontWeight: 600, color: C.navy, fontFamily: "'Space Grotesk', sans-serif" }}>{count}</span>
-                <span style={{ fontSize: 12, fontWeight: 500, color: C.navy, fontFamily: "'Space Grotesk', sans-serif" }}>{sev}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        {/* Hint — right-aligned, directly below severity row, zero top gap */}
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 28px 12px", display: "flex", justifyContent: "flex-end" }}>
-          <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>Click a pin to see the fix + AI prompt ({activeFindings.length} findings)</span>
-        </div>
-
-        {/* ── Two-pane ─────────────────────────────────────────────── */}
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 28px 0", display: "flex", gap: 16, alignItems: "flex-start" }}>
-
-          {/* ── Facsimile ─────────────────────────────────────────── */}
-          <div style={{
-            flex: 1, borderRadius: 16,
-            background: "rgba(255,255,255,0.52)",
-            backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
-            border: "1px solid rgba(255,255,255,0.7)",
-            boxShadow: "0 8px 40px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.8)",
-            overflow: "hidden",
-          }}>
-
-            {/* Browser bar */}
-            <div style={{ background: "rgba(0,0,0,0.025)", borderBottom: `1px solid ${C.border}`, padding: "7px 16px", display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ display: "flex", gap: 5 }}>
-                {["#ef4444","#f59e0b","#22c55e"].map(c => <div key={c} style={{ width: 8, height: 8, borderRadius: "50%", background: c, opacity: 0.45 }} />)}
-              </div>
-              <div style={{ flex: 1, background: "rgba(0,0,0,0.04)", borderRadius: 5, padding: "2px 10px", fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif", textAlign: "center" }}>
-                https://{realDomain}
-              </div>
+          {/* Severity counts + Current/Restructured toggle — right side */}
+          <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              {[
+                { sev: "Critical", count: activeFindings.filter(f => f.sev === "Critical").length, dot: "#EF4444" },
+                { sev: "Major",    count: activeFindings.filter(f => f.sev === "Major").length,    dot: "#F59E0B" },
+                { sev: "Minor",    count: activeFindings.filter(f => f.sev === "Minor").length,    dot: "#EAB308" },
+              ].map(({ sev, count, dot }) => (
+                <div key={sev} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: C.navy, fontFamily: "'Space Grotesk', sans-serif" }}>{count}</span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: C.navy, fontFamily: "'Space Grotesk', sans-serif" }}>{sev}</span>
+                </div>
+              ))}
             </div>
-
-            {/* Site NAV */}
-            <FacSection active={activeZone === "nav"} style={{ padding: "13px 28px", background: "rgba(255,255,255,0.35)" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 14, fontWeight: 700, color: C.navy }}>
-                  {realDomain.split(".")[0].charAt(0).toUpperCase() + realDomain.split(".")[0].slice(1)}
-                </span>
-                <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-                  {(realNavLinks.length > 0 ? realNavLinks.slice(0, 5) : ["Home", "Features", "Pricing", "Blog"]).map((l) => (
-                    <span key={l} style={{ fontSize: 12, color: C.muted, fontFamily: "'Space Grotesk', sans-serif" }}>{l}</span>
-                  ))}
-                  <span style={{ fontSize: 12, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", padding: "4px 14px", border: `1px solid ${C.border}`, borderRadius: 20 }}>Get Started</span>
-                </div>
-              </div>
-              <PinRow zone="nav" {...pinProps} />
-            </FacSection>
-
-            {/* HERO */}
-            <FacSection active={activeZone === "hero"} style={{ textAlign: "center", padding: "44px 48px 36px", background: "linear-gradient(180deg, rgba(209,250,229,0.1) 0%, transparent 100%)" }}>
-              <div style={{ fontSize: 27, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded', sans-serif", letterSpacing: "-0.5px", lineHeight: 1.25, marginBottom: 12 }}>
-                {realH1}
-              </div>
-              <div style={{ fontSize: 13.5, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 22, maxWidth: 420, margin: "0 auto 22px" }}>
-                {realParagraphs[0] ? realParagraphs[0].slice(0, 120) : "Track, measure, and optimise your product with real-time data."}
-              </div>
-              <div style={{ display: "flex", justifyContent: "center" }}>
-                <div style={{ padding: "9px 26px", background: "linear-gradient(135deg, #186132, #148C59)", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif" }}>
-                  {realCtaTexts[0] || "Get Started"}
-                </div>
-              </div>
-              <PinRow zone="hero" {...pinProps} />
-            </FacSection>
-
-            {/* FEATURES */}
-            <FacSection active={activeZone === "features"}>
-              <FacLabel t="Features" />
-              <FacH2>Everything you need to understand your users</FacH2>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 11, marginTop: 14 }}>
-                {(realH2Texts.length >= 3
-                  ? realH2Texts.slice(0, 3).map((t) => ({ t, b: "" }))
-                  : [
-                      { t: "Real-time dashboards", b: "We built our dashboards to give you instant visibility across all your key metrics." },
-                      { t: "Custom reports", b: "Our reporting engine lets your team generate any report you need." },
-                      { t: "Team collaboration", b: "We designed collaboration features so your whole team stays aligned." },
-                    ]
-                ).map((c, i) => (
-                  <div key={i} style={{ background: "rgba(255,255,255,0.55)", border: `1px solid ${C.border}`, borderRadius: 9, padding: "13px 14px" }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 650, color: C.navy, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 4 }}>{c.t}</div>
-                    {c.b && <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif" }}>{c.b}</div>}
-                  </div>
+            {auditData?.raw_html && (
+              <div style={{ display: "flex", background: "rgba(0,0,0,0.05)", borderRadius: 8, padding: 3, gap: 2 }}>
+                {(["current", "restructured"] as const).map(v => (
+                  <button
+                    key={v}
+                    onClick={() => { setFacView(v); setActiveId(null); }}
+                    style={{
+                      fontFamily: "'Space Grotesk', sans-serif",
+                      fontSize: 11, fontWeight: 600,
+                      padding: "5px 13px", borderRadius: 6, border: "none",
+                      cursor: "pointer", transition: "all 0.18s",
+                      background: facView === v
+                        ? v === "restructured" ? "linear-gradient(135deg, #186132, #148C59)" : "#fff"
+                        : "transparent",
+                      color: facView === v ? (v === "restructured" ? "#fff" : C.navy) : C.muted,
+                      boxShadow: facView === v && v === "current" ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
+                    }}
+                  >
+                    {v === "current" ? "Current" : "Restructured"}
+                  </button>
                 ))}
-              </div>
-              <PinRow zone="features" {...pinProps} />
-            </FacSection>
-
-            {/* SOCIAL PROOF */}
-            <FacSection active={activeZone === "social"} style={{ background: "rgba(224,231,255,0.07)" }}>
-              <FacLabel t="Customers" />
-              <FacH2>Trusted by teams at leading companies</FacH2>
-              {realTrustLogoLabels.length > 0 ? (
-                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 14 }}>
-                  {realTrustLogoLabels.map((l, i) => (
-                    <div key={i} style={{ padding: "5px 12px", height: 16, display: "flex", alignItems: "center", background: "rgba(0,0,0,0.06)", borderRadius: 5, fontSize: 10.5, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600 }}>{l}</div>
-                  ))}
-                </div>
-              ) : (
-                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 14 }}>
-                  {[100,80,110,90,70].map((w,i) => (
-                    <div key={i} style={{ width: w, height: 26, background: "rgba(0,0,0,0.06)", borderRadius: 5 }} />
-                  ))}
-                </div>
-              )}
-              {realTestimonialTexts.length > 0 ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
-                  {realTestimonialTexts.slice(0, 3).map((t, i) => (
-                    <div key={i} style={{ padding: "10px 13px", background: "rgba(255,255,255,0.55)", border: `1px solid ${C.border}`, borderRadius: 8 }}>
-                      <span style={{ fontSize: 11.5, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", fontStyle: "italic" }}>&ldquo;{t}&rdquo;</span>
-                    </div>
-                  ))}
-                </div>
-              ) : realTrustLogoLabels.length === 0 && (
-                <div style={{ marginTop: 12, padding: "10px 13px", background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.18)", borderRadius: 8 }}>
-                  <span style={{ fontSize: 11.5, color: "#92400E", fontFamily: "'Space Grotesk', sans-serif" }}>No testimonial quotes or outcome data detected in this section.</span>
-                </div>
-              )}
-              <PinRow zone="social" {...pinProps} />
-            </FacSection>
-
-            {/* PRICING */}
-            <FacSection active={activeZone === "pricing"}>
-              <FacLabel t="Pricing" />
-              <FacH2>Simple, transparent pricing</FacH2>
-              <div style={{ display: "grid", gridTemplateColumns: `repeat(${realPricingTiers.length >= 2 ? realPricingTiers.length : 4},1fr)`, gap: 10, marginTop: 14 }}>
-                {(realPricingTiers.length >= 2
-                  ? realPricingTiers.map((t) => ({ name: t.name, price: t.price, mo: "", pop: false }))
-                  : [
-                      { name: "Starter",    price: "$0",     mo: "free forever",  pop: false },
-                      { name: "Growth",     price: "$49",    mo: "/ month",       pop: false },
-                      { name: "Pro",        price: "$99",    mo: "/ month",       pop: true  },
-                      { name: "Enterprise", price: "Custom", mo: "",              pop: false },
-                    ]
-                ).map((p, i) => (
-                  <div key={i} style={{
-                    background: p.pop ? "rgba(20,140,89,0.06)" : "rgba(255,255,255,0.55)",
-                    border: `1px solid ${p.pop ? "rgba(20,140,89,0.2)" : C.border}`,
-                    borderRadius: 9, padding: "14px 12px", textAlign: "center",
-                  }}>
-                    {p.pop && <div style={{ fontSize: 8.5, fontWeight: 600, color: C.emerald, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3, fontFamily: "'Space Grotesk', sans-serif" }}>Popular</div>}
-                    <div style={{ fontSize: 11.5, fontWeight: 600, color: C.navy, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 5 }}>{p.name}</div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded', sans-serif" }}>{p.price}</div>
-                    <div style={{ fontSize: 9.5, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>{p.mo}</div>
-                  </div>
-                ))}
-              </div>
-              <PinRow zone="pricing" {...pinProps} />
-            </FacSection>
-
-            {/* BOTTOM CTA */}
-            <FacSection active={activeZone === "cta2"} style={{ textAlign: "center", background: "linear-gradient(135deg, rgba(24,97,50,0.04), rgba(91,97,244,0.03))" }}>
-              <FacH2>{realCtaTexts[1] ? `${realCtaTexts[1]}` : "Ready to get started?"}</FacH2>
-              <div style={{ fontSize: 13, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 20 }}>Join thousands of teams already using our platform.</div>
-              <div style={{ display: "flex", justifyContent: "center" }}>
-                <div style={{ padding: "9px 26px", background: "linear-gradient(135deg, #186132, #148C59)", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif" }}>
-                  {realCtaTexts[0] || "Get Started"}
-                </div>
-              </div>
-              <PinRow zone="cta2" {...pinProps} />
-            </FacSection>
-
-            {/* FOOTER */}
-            <FacSection borderBottom={false} style={{ padding: "14px 28px", background: "rgba(0,0,0,0.02)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>© 2026 {realDomain}</span>
-                <div style={{ display: "flex", gap: 14 }}>
-                  {["Privacy","Terms","Contact"].map(l => (
-                    <span key={l} style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>{l}</span>
-                  ))}
-                </div>
-              </div>
-            </FacSection>
-          </div>
-
-          {/* ── Fix Drawer (sticky) ───────────────────────────────── */}
-          <div style={{ position: "sticky", top: 20, width: 340, flexShrink: 0 }}>
-            {activeFinding ? (
-              <FixDrawer
-                finding={activeFinding}
-                findingIndex={activeFindingIndex}
-                onClose={() => setActiveId(null)}
-                recovered={recovered[String(activeFinding.id)] ?? false}
-                onRecover={() => setRecovered(r => ({ ...r, [String(activeFinding.id)]: !r[String(activeFinding.id)] }))}
-              />
-            ) : loadError ? (
-              <div style={{
-                background: "rgba(255,255,255,0.4)",
-                backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
-                borderRadius: 14, border: "1px solid rgba(220,38,38,0.2)",
-                boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
-                padding: "36px 24px", textAlign: "center",
-              }}>
-                <div style={{ fontSize: 28, marginBottom: 14 }}>⚠️</div>
-                <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 13, fontWeight: 700, color: C.red, letterSpacing: "-0.2px", marginBottom: 8 }}>
-                  Couldn't load this blueprint
-                </div>
-                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif" }}>
-                  {loadError} Try refreshing the page.
-                </div>
-              </div>
-            ) : loading ? (
-              <div style={{
-                background: "rgba(255,255,255,0.4)",
-                backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
-                borderRadius: 14, border: "1px solid rgba(255,255,255,0.65)",
-                boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
-                padding: "36px 24px", textAlign: "center",
-              }}>
-                <div style={{ fontSize: 12, color: C.muted, fontFamily: "'Space Grotesk', sans-serif" }}>Loading blueprint…</div>
-              </div>
-            ) : activeFindings.length === 0 ? (
-              <div style={{
-                background: "rgba(255,255,255,0.4)",
-                backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
-                borderRadius: 14, border: "1px solid rgba(255,255,255,0.65)",
-                boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
-                padding: "36px 24px", textAlign: "center",
-              }}>
-                <div style={{ fontSize: 28, marginBottom: 14 }}>✅</div>
-                <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 13, fontWeight: 700, color: C.navy, letterSpacing: "-0.2px", marginBottom: 8 }}>
-                  No conversion blockers found
-                </div>
-                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif" }}>
-                  This audit didn't flag any failing checks to pin here.
-                </div>
-              </div>
-            ) : (
-              <div style={{
-                background: "rgba(255,255,255,0.4)",
-                backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
-                borderRadius: 14, border: "1px solid rgba(255,255,255,0.65)",
-                boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
-                padding: "36px 24px", textAlign: "center",
-              }}>
-                <div style={{ fontSize: 28, marginBottom: 14 }}>📍</div>
-                <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 13, fontWeight: 700, color: C.navy, letterSpacing: "-0.2px", marginBottom: 8 }}>
-                  Click a pin
-                </div>
-                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 20 }}>
-                  Each numbered dot maps a conversion issue to the section where it occurs.
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  {[
-                    { dot: "#EF4444", label: "Critical — fix immediately" },
-                    { dot: "#F59E0B", label: "Major — high impact" },
-                    { dot: "#EAB308", label: "Minor — quick win" },
-                  ].map(({ dot, label }) => (
-                    <div key={label} style={{ display: "flex", alignItems: "center", gap: 9, textAlign: "left" }}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: dot, flexShrink: 0 }} />
-                      <span style={{ fontSize: 11.5, color: C.muted, fontFamily: "'Space Grotesk', sans-serif" }}>{label}</span>
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
           </div>
         </div>
+        {/* Hint — right-aligned, directly below severity row, zero top gap */}
+        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 28px 12px", display: "flex", justifyContent: "flex-end" }}>
+          <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>
+            {facView === "restructured"
+              ? "Pick a story direction, decide what changes, and generate a real rebuild"
+              : `Click a pin to see the fix + AI prompt (${activeFindings.length} findings)`}
+          </span>
+        </div>
 
-        {/* Audit ID — centered directly below facsimile */}
+        {facView === "current" ? (
+          /* ── Two-pane facsimile (unchanged from Layer 0/prototype) ─── */
+          <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 28px 0", display: "flex", gap: 16, alignItems: "flex-start" }}>
+
+            {/* ── Facsimile ─────────────────────────────────────────── */}
+            <div style={{
+              flex: 1, borderRadius: 16,
+              background: "rgba(255,255,255,0.52)",
+              backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+              border: "1px solid rgba(255,255,255,0.7)",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.8)",
+              overflow: "hidden",
+            }}>
+
+              {/* Browser bar */}
+              <div style={{ background: "rgba(0,0,0,0.025)", borderBottom: `1px solid ${C.border}`, padding: "7px 16px", display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", gap: 5 }}>
+                  {["#ef4444","#f59e0b","#22c55e"].map(c => <div key={c} style={{ width: 8, height: 8, borderRadius: "50%", background: c, opacity: 0.45 }} />)}
+                </div>
+                <div style={{ flex: 1, background: "rgba(0,0,0,0.04)", borderRadius: 5, padding: "2px 10px", fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif", textAlign: "center" }}>
+                  https://{realDomain}
+                </div>
+              </div>
+
+              {/* Site NAV */}
+              <FacSection active={activeZone === "nav"} style={{ padding: "13px 28px", background: "rgba(255,255,255,0.35)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 14, fontWeight: 700, color: C.navy }}>
+                    {realDomain.split(".")[0].charAt(0).toUpperCase() + realDomain.split(".")[0].slice(1)}
+                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+                    {(realNavLinks.length > 0 ? realNavLinks.slice(0, 5) : ["Home", "Features", "Pricing", "Blog"]).map((l) => (
+                      <span key={l} style={{ fontSize: 12, color: C.muted, fontFamily: "'Space Grotesk', sans-serif" }}>{l}</span>
+                    ))}
+                    <span style={{ fontSize: 12, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", padding: "4px 14px", border: `1px solid ${C.border}`, borderRadius: 20 }}>Get Started</span>
+                  </div>
+                </div>
+                <PinRow zone="nav" {...pinProps} />
+              </FacSection>
+
+              {/* HERO */}
+              <FacSection active={activeZone === "hero"} style={{ textAlign: "center", padding: "44px 48px 36px", background: "linear-gradient(180deg, rgba(209,250,229,0.1) 0%, transparent 100%)" }}>
+                <div style={{ fontSize: 27, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded', sans-serif", letterSpacing: "-0.5px", lineHeight: 1.25, marginBottom: 12 }}>
+                  {realH1}
+                </div>
+                <div style={{ fontSize: 13.5, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 22, maxWidth: 420, margin: "0 auto 22px" }}>
+                  {realParagraphs[0] ? realParagraphs[0].slice(0, 120) : "Track, measure, and optimise your product with real-time data."}
+                </div>
+                <div style={{ display: "flex", justifyContent: "center" }}>
+                  <div style={{ padding: "9px 26px", background: "linear-gradient(135deg, #186132, #148C59)", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif" }}>
+                    {realCtaTexts[0] || "Get Started"}
+                  </div>
+                </div>
+                <PinRow zone="hero" {...pinProps} />
+              </FacSection>
+
+              {/* FEATURES */}
+              <FacSection active={activeZone === "features"}>
+                <FacLabel t="Features" />
+                <FacH2>Everything you need to understand your users</FacH2>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 11, marginTop: 14 }}>
+                  {(realH2Texts.length >= 3
+                    ? realH2Texts.slice(0, 3).map((t) => ({ t, b: "" }))
+                    : [
+                        { t: "Real-time dashboards", b: "We built our dashboards to give you instant visibility across all your key metrics." },
+                        { t: "Custom reports", b: "Our reporting engine lets your team generate any report you need." },
+                        { t: "Team collaboration", b: "We designed collaboration features so your whole team stays aligned." },
+                      ]
+                  ).map((c, i) => (
+                    <div key={i} style={{ background: "rgba(255,255,255,0.55)", border: `1px solid ${C.border}`, borderRadius: 9, padding: "13px 14px" }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 650, color: C.navy, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 4 }}>{c.t}</div>
+                      {c.b && <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif" }}>{c.b}</div>}
+                    </div>
+                  ))}
+                </div>
+                <PinRow zone="features" {...pinProps} />
+              </FacSection>
+
+              {/* SOCIAL PROOF */}
+              <FacSection active={activeZone === "social"} style={{ background: "rgba(224,231,255,0.07)" }}>
+                <FacLabel t="Customers" />
+                <FacH2>Trusted by teams at leading companies</FacH2>
+                {realTrustLogoLabels.length > 0 ? (
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 14 }}>
+                    {realTrustLogoLabels.map((l, i) => (
+                      <div key={i} style={{ padding: "5px 12px", height: 16, display: "flex", alignItems: "center", background: "rgba(0,0,0,0.06)", borderRadius: 5, fontSize: 10.5, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600 }}>{l}</div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 14 }}>
+                    {[100,80,110,90,70].map((w,i) => (
+                      <div key={i} style={{ width: w, height: 26, background: "rgba(0,0,0,0.06)", borderRadius: 5 }} />
+                    ))}
+                  </div>
+                )}
+                {realTestimonialTexts.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
+                    {realTestimonialTexts.slice(0, 3).map((t, i) => (
+                      <div key={i} style={{ padding: "10px 13px", background: "rgba(255,255,255,0.55)", border: `1px solid ${C.border}`, borderRadius: 8 }}>
+                        <span style={{ fontSize: 11.5, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", fontStyle: "italic" }}>&ldquo;{t}&rdquo;</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : realTrustLogoLabels.length === 0 && (
+                  <div style={{ marginTop: 12, padding: "10px 13px", background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.18)", borderRadius: 8 }}>
+                    <span style={{ fontSize: 11.5, color: "#92400E", fontFamily: "'Space Grotesk', sans-serif" }}>No testimonial quotes or outcome data detected in this section.</span>
+                  </div>
+                )}
+                <PinRow zone="social" {...pinProps} />
+              </FacSection>
+
+              {/* PRICING */}
+              <FacSection active={activeZone === "pricing"}>
+                <FacLabel t="Pricing" />
+                <FacH2>Simple, transparent pricing</FacH2>
+                <div style={{ display: "grid", gridTemplateColumns: `repeat(${realPricingTiers.length >= 2 ? realPricingTiers.length : 4},1fr)`, gap: 10, marginTop: 14 }}>
+                  {(realPricingTiers.length >= 2
+                    ? realPricingTiers.map((t) => ({ name: t.name, price: t.price, mo: "", pop: false }))
+                    : [
+                        { name: "Starter",    price: "$0",     mo: "free forever",  pop: false },
+                        { name: "Growth",     price: "$49",    mo: "/ month",       pop: false },
+                        { name: "Pro",        price: "$99",    mo: "/ month",       pop: true  },
+                        { name: "Enterprise", price: "Custom", mo: "",              pop: false },
+                      ]
+                  ).map((p, i) => (
+                    <div key={i} style={{
+                      background: p.pop ? "rgba(20,140,89,0.06)" : "rgba(255,255,255,0.55)",
+                      border: `1px solid ${p.pop ? "rgba(20,140,89,0.2)" : C.border}`,
+                      borderRadius: 9, padding: "14px 12px", textAlign: "center",
+                    }}>
+                      {p.pop && <div style={{ fontSize: 8.5, fontWeight: 600, color: C.emerald, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3, fontFamily: "'Space Grotesk', sans-serif" }}>Popular</div>}
+                      <div style={{ fontSize: 11.5, fontWeight: 600, color: C.navy, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 5 }}>{p.name}</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded', sans-serif" }}>{p.price}</div>
+                      <div style={{ fontSize: 9.5, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>{p.mo}</div>
+                    </div>
+                  ))}
+                </div>
+                <PinRow zone="pricing" {...pinProps} />
+              </FacSection>
+
+              {/* BOTTOM CTA */}
+              <FacSection active={activeZone === "cta2"} style={{ textAlign: "center", background: "linear-gradient(135deg, rgba(24,97,50,0.04), rgba(91,97,244,0.03))" }}>
+                <FacH2>{realCtaTexts[1] ? `${realCtaTexts[1]}` : "Ready to get started?"}</FacH2>
+                <div style={{ fontSize: 13, color: C.muted, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 20 }}>Join thousands of teams already using our platform.</div>
+                <div style={{ display: "flex", justifyContent: "center" }}>
+                  <div style={{ padding: "9px 26px", background: "linear-gradient(135deg, #186132, #148C59)", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif" }}>
+                    {realCtaTexts[0] || "Get Started"}
+                  </div>
+                </div>
+                <PinRow zone="cta2" {...pinProps} />
+              </FacSection>
+
+              {/* FOOTER */}
+              <FacSection borderBottom={false} style={{ padding: "14px 28px", background: "rgba(0,0,0,0.02)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>© 2026 {realDomain}</span>
+                  <div style={{ display: "flex", gap: 14 }}>
+                    {["Privacy","Terms","Contact"].map(l => (
+                      <span key={l} style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif" }}>{l}</span>
+                    ))}
+                  </div>
+                </div>
+              </FacSection>
+            </div>
+
+            {/* ── Fix Drawer (sticky) ───────────────────────────────── */}
+            <div style={{ position: "sticky", top: 20, width: 340, flexShrink: 0 }}>
+              {activeFinding ? (
+                <FixDrawer
+                  finding={activeFinding}
+                  findingIndex={activeFindingIndex}
+                  onClose={() => setActiveId(null)}
+                  recovered={recovered[String(activeFinding.id)] ?? false}
+                  onRecover={() => setRecovered(r => ({ ...r, [String(activeFinding.id)]: !r[String(activeFinding.id)] }))}
+                />
+              ) : loadError ? (
+                <div style={{
+                  background: "rgba(255,255,255,0.4)",
+                  backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+                  borderRadius: 14, border: "1px solid rgba(220,38,38,0.2)",
+                  boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
+                  padding: "36px 24px", textAlign: "center",
+                }}>
+                  <div style={{ fontSize: 28, marginBottom: 14 }}>⚠️</div>
+                  <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 13, fontWeight: 700, color: C.red, letterSpacing: "-0.2px", marginBottom: 8 }}>
+                    Couldn't load this blueprint
+                  </div>
+                  <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif" }}>
+                    {loadError} Try refreshing the page.
+                  </div>
+                </div>
+              ) : loading ? (
+                <div style={{
+                  background: "rgba(255,255,255,0.4)",
+                  backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+                  borderRadius: 14, border: "1px solid rgba(255,255,255,0.65)",
+                  boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
+                  padding: "36px 24px", textAlign: "center",
+                }}>
+                  <div style={{ fontSize: 12, color: C.muted, fontFamily: "'Space Grotesk', sans-serif" }}>Loading blueprint…</div>
+                </div>
+              ) : activeFindings.length === 0 ? (
+                <div style={{
+                  background: "rgba(255,255,255,0.4)",
+                  backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+                  borderRadius: 14, border: "1px solid rgba(255,255,255,0.65)",
+                  boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
+                  padding: "36px 24px", textAlign: "center",
+                }}>
+                  <div style={{ fontSize: 28, marginBottom: 14 }}>✅</div>
+                  <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 13, fontWeight: 700, color: C.navy, letterSpacing: "-0.2px", marginBottom: 8 }}>
+                    No conversion blockers found
+                  </div>
+                  <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif" }}>
+                    This audit didn't flag any failing checks to pin here.
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  background: "rgba(255,255,255,0.4)",
+                  backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+                  borderRadius: 14, border: "1px solid rgba(255,255,255,0.65)",
+                  boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
+                  padding: "36px 24px", textAlign: "center",
+                }}>
+                  <div style={{ fontSize: 28, marginBottom: 14 }}>📍</div>
+                  <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 13, fontWeight: 700, color: C.navy, letterSpacing: "-0.2px", marginBottom: 8 }}>
+                    Click a pin
+                  </div>
+                  <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 20 }}>
+                    Each numbered dot maps a conversion issue to the section where it occurs.
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                    {[
+                      { dot: "#EF4444", label: "Critical — fix immediately" },
+                      { dot: "#F59E0B", label: "Major — high impact" },
+                      { dot: "#EAB308", label: "Minor — quick win" },
+                    ].map(({ dot, label }) => (
+                      <div key={label} style={{ display: "flex", alignItems: "center", gap: 9, textAlign: "left" }}>
+                        <div style={{ width: 10, height: 10, borderRadius: "50%", background: dot, flexShrink: 0 }} />
+                        <span style={{ fontSize: 11.5, color: C.muted, fontFamily: "'Space Grotesk', sans-serif" }}>{label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* ── Vision sandbox (relocated from /vision/:auditId) ──────── */
+          <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 28px 40px", display: "grid", gridTemplateColumns: "320px 1fr", gap: 20, alignItems: "flex-start" }}>
+
+            {/* Left rail */}
+            <div style={{
+              background: "rgba(255,255,255,0.5)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+              borderRadius: 14, border: "1px solid rgba(255,255,255,0.7)", boxShadow: "0 8px 32px rgba(0,0,0,0.05)",
+              padding: "18px 18px 20px", position: "sticky", top: 20,
+            }}>
+              {sortedJourneyBreaks.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.dim, marginBottom: 10 }}>Where the journey breaks down</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+                    {sortedJourneyBreaks.map((jb, i) => (
+                      <div key={i} style={{ fontSize: 11, lineHeight: 1.5 }}>
+                        <span style={{ fontWeight: 700, color: C.violet, textTransform: "uppercase", fontSize: 9, letterSpacing: "0.06em" }}>{JOURNEY_STAGE_LABELS[jb.journeyStage] ?? jb.journeyStage}</span>
+                        <div style={{ color: C.muted }}>{jb.reason}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.dim, marginBottom: 10 }}>Story direction</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 20 }}>
+                {ARCHETYPES.map((a) => (
+                  <button key={a} onClick={() => setArchetype(a)} style={{
+                    padding: "6px 12px", borderRadius: 20, fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+                    fontFamily: "'Space Grotesk',sans-serif", transition: "all 0.15s",
+                    background: archetype === a ? "linear-gradient(135deg,#186132,#14D571)" : "rgba(0,0,0,0.05)",
+                    color: archetype === a ? "#fff" : C.muted,
+                    border: "none",
+                  }}>{a}</button>
+                ))}
+              </div>
+
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.dim, marginBottom: 10 }}>Section order</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20 }}>
+                {sectionOrder.map((zone, i) => (
+                  <div key={zone} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.6)", border: `1px solid ${C.border}`, borderRadius: 8, padding: "7px 10px" }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: C.navy, flex: 1 }}>{ZONE_LABELS[zone] ?? zone}</span>
+                    <button onClick={() => moveSection(i, -1)} disabled={i === 0} style={{ background: "none", border: "none", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.3 : 1, fontSize: 13, color: C.muted, padding: "0 3px" }}>↑</button>
+                    <button onClick={() => moveSection(i, 1)} disabled={i === sectionOrder.length - 1} style={{ background: "none", border: "none", cursor: i === sectionOrder.length - 1 ? "default" : "pointer", opacity: i === sectionOrder.length - 1 ? 0.3 : 1, fontSize: 13, color: C.muted, padding: "0 3px" }}>↓</button>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.dim, marginBottom: 10 }}>What to change</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+                {sectionOrder.map((zone) => (
+                  <div key={zone}>
+                    <div style={{ fontSize: 11, fontWeight: 650, color: C.navy, marginBottom: 4 }}>{ZONE_LABELS[zone] ?? zone}</div>
+                    <textarea
+                      value={copySelections[zone] ?? ""}
+                      onChange={(e) => setCopySelections((c) => ({ ...c, [zone]: e.target.value }))}
+                      rows={2}
+                      style={{
+                        width: "100%", resize: "vertical", fontSize: 11.5, fontFamily: "'Space Grotesk',sans-serif",
+                        padding: "7px 9px", borderRadius: 7, border: `1px solid ${C.border}`, background: "rgba(255,255,255,0.7)",
+                        color: "#374151", lineHeight: 1.5, boxSizing: "border-box",
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={handleGenerate}
+                disabled={generating}
+                style={{
+                  width: "100%", padding: "11px 0", borderRadius: 10, border: "none",
+                  background: generating ? "rgba(24,97,50,0.4)" : "linear-gradient(135deg,#186132,#14D571)",
+                  color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "'Unbounded',sans-serif",
+                  cursor: generating ? "default" : "pointer", boxShadow: generating ? "none" : "0 4px 18px rgba(20,140,89,0.3)",
+                }}
+              >
+                {generating ? "Generating…" : generatedHtml ? "Regenerate" : "Generate"}
+              </button>
+            </div>
+
+            {/* Right — output */}
+            <div>
+              {versions.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                  {versions.map((v) => (
+                    <button key={v.id} onClick={() => handleSelectVersion(v)} style={{
+                      padding: "5px 12px", borderRadius: 16, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                      fontFamily: "'Space Grotesk',sans-serif",
+                      background: activeVersionId === v.id ? "rgba(91,97,244,0.14)" : "rgba(255,255,255,0.6)",
+                      color: activeVersionId === v.id ? C.violet : C.muted,
+                      border: `1px solid ${activeVersionId === v.id ? "rgba(91,97,244,0.35)" : C.border}`,
+                    }}>v{v.version_number} · {v.archetype}</button>
+                  ))}
+                </div>
+              )}
+
+              <div style={{
+                borderRadius: 14, overflow: "hidden", background: "#fff",
+                border: "1px solid rgba(255,255,255,0.7)", boxShadow: "0 8px 32px rgba(0,0,0,0.06)",
+                minHeight: 520, display: "flex", flexDirection: "column",
+              }}>
+                <div style={{ background: "rgba(0,0,0,0.03)", borderBottom: `1px solid ${C.border}`, padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ display: "flex", gap: 5 }}>
+                    {["#ef4444", "#f59e0b", "#22c55e"].map((c) => <div key={c} style={{ width: 8, height: 8, borderRadius: "50%", background: c, opacity: 0.45 }} />)}
+                  </div>
+                  <div style={{ flex: 1, background: "rgba(0,0,0,0.04)", borderRadius: 5, padding: "3px 10px", fontSize: 11, color: C.dim, textAlign: "center" }}>
+                    https://{realDomain}
+                  </div>
+                  {generatedHtml && !generating && (
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={handleSaveVersion} style={{
+                        padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer",
+                        background: "rgba(20,140,89,0.12)", color: C.emerald, fontSize: 11, fontWeight: 700,
+                        fontFamily: "'Space Grotesk',sans-serif",
+                      }}>Save version</button>
+                      {isLive ? (
+                        <>
+                          <button onClick={handleAddLiveTestVariant} disabled={addingLiveTest} style={{
+                            padding: "5px 12px", borderRadius: 7, border: "none", cursor: addingLiveTest ? "default" : "pointer",
+                            background: addingLiveTest ? "rgba(91,97,244,0.3)" : "rgba(91,97,244,0.12)", color: C.violet, fontSize: 11, fontWeight: 700,
+                            fontFamily: "'Space Grotesk',sans-serif",
+                          }}>{addingLiveTest ? "Adding…" : "Add as live test variant"}</button>
+                          <button onClick={handleRollback} style={{
+                            padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer",
+                            background: "rgba(220,38,38,0.1)", color: C.red, fontSize: 11, fontWeight: 700,
+                            fontFamily: "'Space Grotesk',sans-serif",
+                          }}>Rollback</button>
+                        </>
+                      ) : (
+                        <button onClick={handleDeploy} disabled={deploying} style={{
+                          padding: "5px 12px", borderRadius: 7, border: "none", cursor: deploying ? "default" : "pointer",
+                          background: deploying ? "rgba(91,97,244,0.3)" : C.violet, color: "#fff", fontSize: 11, fontWeight: 700,
+                          fontFamily: "'Space Grotesk',sans-serif",
+                        }}>{deploying ? "Deploying…" : "Deploy"}</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {isLive && (
+                  <div style={{ padding: "10px 16px", background: "rgba(20,140,89,0.06)", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.emerald, fontFamily: "'Space Grotesk',sans-serif" }}>Live on {realDomain} —</span>
+                    <code style={{ fontSize: 10.5, color: "#374151", background: "rgba(255,255,255,0.7)", padding: "3px 8px", borderRadius: 5, fontFamily: "monospace", flex: 1, minWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {embedSnippetFor(auditId)}
+                    </code>
+                    <button onClick={copySnippet} style={{
+                      padding: "4px 10px", borderRadius: 6, border: "none", cursor: "pointer",
+                      background: copiedSnippet ? "linear-gradient(135deg,#186132,#14D571)" : "rgba(0,0,0,0.06)",
+                      color: copiedSnippet ? "#fff" : C.navy, fontSize: 10.5, fontWeight: 700, fontFamily: "'Space Grotesk',sans-serif",
+                    }}>{copiedSnippet ? "Copied" : "Copy"}</button>
+                  </div>
+                )}
+                {isLive && activeVariants.length > 0 && (
+                  <div style={{ padding: "10px 16px", background: "rgba(91,97,244,0.05)", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.violet, fontFamily: "'Space Grotesk',sans-serif", marginBottom: 6 }}>
+                      Vision Pro live test{activeVariants.length > 1 ? ` — ${activeVariants.length} variants` : ""}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {activeVariants.map((v, i) => {
+                        const counts = variantEventCounts[v.id] ?? { serves: 0, converts: 0 };
+                        const weightPct = Math.round((v.traffic_weight ?? (1 / activeVariants.length)) * 100);
+                        return (
+                          <div key={v.id} style={{ fontSize: 11.5, color: "#374151", fontFamily: "'Space Grotesk',sans-serif" }}>
+                            <span style={{ fontWeight: 650 }}>Variant {i + 1}</span> — {weightPct}% traffic · {counts.serves} served · {counts.converts} converted
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {isLive && driftEvents.length > 0 && (
+                  <div style={{ padding: "10px 16px", background: "rgba(245,158,11,0.06)", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#92400E", fontFamily: "'Space Grotesk',sans-serif", marginBottom: 6 }}>
+                      Drift detected since deploy
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {driftEvents.slice(0, 5).map((ev) => (
+                        <div key={ev.id} style={{ fontSize: 11.5, color: "#374151", fontFamily: "'Space Grotesk',sans-serif" }}>
+                          <span style={{ fontWeight: 650 }}>{ev.element || "A section"}</span> got worse (+{ev.severity_delta} severity) on{" "}
+                          {new Date(ev.detected_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {deployError && (
+                  <div style={{ padding: "8px 16px", background: "rgba(220,38,38,0.06)", borderBottom: `1px solid ${C.border}`, fontSize: 11, color: C.red, fontFamily: "'Space Grotesk',sans-serif" }}>
+                    {deployError}
+                  </div>
+                )}
+
+                <div style={{ flex: 1, position: "relative" }}>
+                  {generating ? (
+                    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14 }}>
+                      <div style={{ width: 28, height: 28, borderRadius: "50%", border: "3px solid rgba(20,140,89,0.15)", borderTopColor: C.emerald, animation: "spin 0.8s linear infinite" }} />
+                      <div style={{ fontSize: 13, color: C.navy, fontWeight: 600, fontFamily: "'Space Grotesk',sans-serif" }}>{GENERATION_STEPS[genStepIndex]}</div>
+                    </div>
+                  ) : genError ? (
+                    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, padding: 32, textAlign: "center" }}>
+                      <div style={{ fontSize: 26 }}>⚠️</div>
+                      <div style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 13, fontWeight: 700, color: C.red }}>Couldn't generate this version</div>
+                      <div style={{ fontSize: 12, color: C.muted, maxWidth: 360, lineHeight: 1.6 }}>{genError}</div>
+                      <button onClick={handleGenerate} style={{
+                        marginTop: 6, padding: "8px 18px", borderRadius: 8, border: "none", cursor: "pointer",
+                        background: "linear-gradient(135deg,#186132,#14D571)", color: "#fff", fontSize: 12, fontWeight: 700,
+                        fontFamily: "'Space Grotesk',sans-serif",
+                      }}>Try again</button>
+                    </div>
+                  ) : generatedHtml ? (
+                    <iframe
+                      title="Vision preview"
+                      srcDoc={generatedHtml}
+                      sandbox="allow-same-origin allow-scripts"
+                      style={{ width: "100%", height: 640, border: "none", display: "block" }}
+                    />
+                  ) : (
+                    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 32, textAlign: "center" }}>
+                      <div style={{ fontSize: 26 }}>✦</div>
+                      <div style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 13, fontWeight: 700, color: C.navy }}>Ready when you are</div>
+                      <div style={{ fontSize: 12, color: C.muted, maxWidth: 320, lineHeight: 1.6 }}>
+                        Pick a story direction, adjust the section order and copy, then generate a full rebuild of {realDomain}.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Audit ID — centered directly below the pane */}
         <div style={{ maxWidth: 1120, margin: "0 auto", padding: "10px 28px 28px", textAlign: "center" }}>
           <span style={{ fontSize: 11, color: C.dim, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.06em" }}>
             {realDomain}
