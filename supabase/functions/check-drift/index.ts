@@ -25,14 +25,18 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // regression, and that judgment — not a bare number — is what lands in
 // drift_events.
 //
-// Duplicates a minimal slice of run-audit's metadata extraction and journey
-// diagnosis logic rather than importing it — Edge Functions don't share a
-// runtime, and this only needs the handful of fields diagnoseJourney() and
-// inferCurrentArchetype() actually read, not the full 50-check engine.
+// The journey diagnosis here uses the exact same shape as run-audit
+// (element/whats_happening/what_should_happen/reason/fix/ai_prompt) so a
+// drift-run journey break and an original-audit journey break are
+// interchangeable rows in archetype_consistency_scores. A `severity` field
+// is generated alongside them purely as an internal signal for this file's
+// own regression comparison — the product surfaces the AI's narrative
+// reasoning about drift (see assessRegression below), never a bare severity
+// number.
 //
 // Detect + log + surface only: suggested_variant_id is always left null.
 // No autonomous Claude call generates a fix — that stays the existing
-// manual "Generate" click in Blueprint.
+// manual "Generate" click in the workspace.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -62,9 +66,12 @@ const JOURNEY_STAGES: JourneyStage[] = ["arrival", "understanding", "trust-build
 interface JourneyBreak {
   journey_stage: JourneyStage;
   element: string;
-  current_archetype_signal: string;
-  conflict_severity: number;
+  whats_happening: string;
+  what_should_happen: string;
   reason: string;
+  fix: string;
+  ai_prompt: string;
+  severity: number;
 }
 interface JourneyDiagnosis {
   narrative_verdict: string;
@@ -82,36 +89,61 @@ interface CheckDriftPayload {
   fingerprints?: Record<string, ZoneFingerprint>;
 }
 
-// Only the fields inferCurrentArchetype() and diagnoseJourney() actually read —
-// not the full PageMetadata shape run-audit builds for the 50-check engine.
-interface MinimalMetadata {
-  h1Text: string;
-  paragraphExcerpt: string;
+interface PageSignals {
+  domain: string;
+  title: string | null;
   metaDescription: string | null;
-  ctas: { text: string }[];
-  images: { src: string; alt: string | null }[];
-  headingTexts: string[];
-  bodyTextContent: string;
+  h1Text: string;
+  h2Texts: string[];
+  navLinks: string[];
+  ctaTexts: string[];
+  paragraphTexts: string[];
+  testimonialTexts: string[];
+  trustLogoLabels: string[];
+  pricingTiers: { name: string; price: string }[];
+  imagesCount: number;
+  hasForm: boolean;
   bodyWordCount: number;
   youWeRatio: number;
 }
 
-// ─── HELPERS (duplicated from run-audit, kept minimal) ───
+// ─── HELPERS (ported from run-audit — same signal extraction, kept in sync
+// so a drift re-check and the original diagnosis reason from the same data). ───
 function cleanText(input: string | null | undefined): string {
   return (input ?? "").replace(/\s+/g, " ").trim();
 }
-function textOrNull(input: string | null | undefined): string | null {
-  const cleaned = cleanText(input);
-  return cleaned.length > 0 ? cleaned : null;
-}
 function countWordOccurrences(text: string, words: string[]): number {
-  return words.reduce((sum, word) => {
-    const regex = new RegExp(`\\b${word}\\b`, "gi");
-    return sum + (text.match(regex)?.length ?? 0);
-  }, 0);
+  return words.reduce((sum, word) => sum + (text.match(new RegExp(`\\b${word}\\b`, "gi"))?.length ?? 0), 0);
 }
-function hasAny(text: string, patterns: (string | RegExp)[]): boolean {
-  return patterns.some((p) => (typeof p === "string" ? text.includes(p) : p.test(text)));
+function hasAny(text: string, patterns: string[]): boolean {
+  return patterns.some((p) => text.includes(p));
+}
+
+async function readStreamedText(response: Response): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const event = JSON.parse(line.slice(6));
+        if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+          text += event.delta.text;
+        }
+      } catch {
+        // ignore malformed SSE lines
+      }
+    }
+  }
+  return text;
 }
 
 async function fetchHtml(url: string): Promise<{ success: true; html: string } | { success: false; error: string }> {
@@ -122,7 +154,7 @@ async function fetchHtml(url: string): Promise<{ success: true; html: string } |
       method: "GET",
       redirect: "follow",
       signal: controller.signal,
-      headers: { "User-Agent": "UXpactAuditBot/0.1", Accept: "text/html,application/xhtml+xml" },
+      headers: { "User-Agent": "UXpactBot/1.0", Accept: "text/html,application/xhtml+xml" },
     });
     const html = await response.text();
     return { success: true, html };
@@ -134,110 +166,141 @@ async function fetchHtml(url: string): Promise<{ success: true; html: string } |
   }
 }
 
-// ─── MINIMAL METADATA EXTRACTION ───
-const CTA_TEXT_PATTERNS = ["get started", "start", "sign up", "try", "book", "contact", "buy", "subscribe", "learn more", "request", "demo", "free", "access", "download", "get my", "get your", "schedule", "claim"];
-const NON_CTA_PATTERNS = ["sync", "connect", "import", "export", "settings", "filter", "search", "cancel", "close", "dismiss", "skip", "back", "next", "previous", "load more", "show more", "save your spot", "remind me", "notify me", "login", "log in", "sign in", "logout", "log out", "copy", "share", "print", "view all", "see all", "read more"];
-
-function extractMinimalMetadata(doc: Document): MinimalMetadata {
+function extractSignals(doc: Document, domain: string): PageSignals {
+  const title = cleanText(doc.querySelector("title")?.textContent) || null;
   const metaDescription = doc.querySelector('meta[name="description"]')?.getAttribute("content") ?? null;
-  const h1Text = textOrNull(doc.querySelector("h1")?.textContent) ?? "";
-  const headingTexts = Array.from(doc.querySelectorAll("h1, h2, h3, h4, h5, h6")).map((h) => cleanText(h.textContent));
-  const paragraphExcerpt = cleanText(doc.querySelector("p")?.textContent ?? "");
+  const h1Text = cleanText(doc.querySelector("h1")?.textContent);
+  const h2Texts = Array.from(doc.querySelectorAll("h2")).map((h) => cleanText(h.textContent)).filter(Boolean).slice(0, 8);
 
-  const ctas = Array.from(doc.querySelectorAll("a, button, input[type='button'], input[type='submit'], [role='button']"))
-    .map((el) => ({ text: cleanText(el.textContent || el.getAttribute("value") || ""), tag: el.tagName.toLowerCase(), classes: (el.getAttribute("class") || "").trim() }))
-    .filter((entry) => {
-      const normalized = entry.text.toLowerCase();
-      const classText = entry.classes.toLowerCase();
-      if (!normalized || normalized.length < 2 || normalized.length > 60) return false;
-      if (NON_CTA_PATTERNS.some((p) => normalized.includes(p))) return false;
-      const hasCtaClass = classText.includes("cta") || classText.includes("btn") || classText.includes("button");
-      const hasCtaText = CTA_TEXT_PATTERNS.some((pattern) => normalized.includes(pattern));
-      if (entry.tag === "a") return hasCtaClass && hasCtaText;
-      return hasCtaText || hasCtaClass;
-    })
-    .map((entry) => ({ text: entry.text }));
+  const headerEl = doc.querySelector("header");
+  const navEl = headerEl?.querySelector("nav") ?? doc.querySelector("nav");
+  const navLinks = navEl ? Array.from(navEl.querySelectorAll("a")).map((a) => cleanText(a.textContent)).filter(Boolean).slice(0, 10) : [];
 
-  const images = Array.from(doc.querySelectorAll("img")).map((img) => ({ src: img.getAttribute("src") ?? "", alt: img.getAttribute("alt") }));
+  const ctaTexts = Array.from(doc.querySelectorAll("a, button"))
+    .map((el) => cleanText(el.textContent))
+    .filter((t) => t.length > 1 && t.length < 40)
+    .slice(0, 15);
 
-  const bodyTextContent = cleanText(doc.body?.textContent ?? "");
-  const words = bodyTextContent.length > 0 ? bodyTextContent.split(/\s+/) : [];
-  const youCount = countWordOccurrences(bodyTextContent, ["you", "your", "yours"]);
-  const weCount = countWordOccurrences(bodyTextContent, ["we", "our", "us"]);
+  const paragraphTexts = Array.from(doc.querySelectorAll("p")).map((p) => cleanText(p.textContent)).filter((p) => p.length > 15).slice(0, 8);
+
+  const testimonialTexts = (() => {
+    const nodes = Array.from(doc.querySelectorAll("blockquote, [class*='testimonial' i], [class*='review' i]"));
+    return nodes.map((n) => cleanText(n.textContent).slice(0, 220)).filter((t) => t.length > 15).slice(0, 5);
+  })();
+
+  const trustLogoLabels = Array.from(doc.querySelectorAll("img"))
+    .filter((img) => /logo|client|partner|brand/i.test(`${img.getAttribute("src") ?? ""} ${img.getAttribute("alt") ?? ""} ${img.getAttribute("class") ?? ""}`))
+    .map((img) => cleanText(img.getAttribute("alt")))
+    .filter(Boolean)
+    .slice(0, 6);
+
+  const pricingTiers = (() => {
+    const priceRegex = /[£$€]\s?\d[\d,.]*/;
+    const nodes = Array.from(doc.querySelectorAll("[class*='pric' i], [class*='plan' i], [class*='tier' i]"));
+    const tiers: { name: string; price: string }[] = [];
+    for (const el of nodes) {
+      const match = el.textContent?.match(priceRegex);
+      if (!match) continue;
+      const heading = el.querySelector("h1, h2, h3, h4, [class*='name' i], [class*='title' i]");
+      const name = cleanText(heading?.textContent) || cleanText(el.textContent).slice(0, 24);
+      if (!name || tiers.some((t) => t.name === name)) continue;
+      tiers.push({ name, price: match[0] });
+      if (tiers.length >= 4) break;
+    }
+    return tiers;
+  })();
+
+  const bodyText = cleanText(doc.body?.textContent ?? "");
+  const words = bodyText.length > 0 ? bodyText.split(/\s+/) : [];
+  const youCount = countWordOccurrences(bodyText, ["you", "your", "yours"]);
+  const weCount = countWordOccurrences(bodyText, ["we", "our", "us"]);
 
   return {
-    h1Text,
-    paragraphExcerpt,
+    domain,
+    title,
     metaDescription,
-    ctas,
-    images,
-    headingTexts,
-    bodyTextContent,
+    h1Text,
+    h2Texts,
+    navLinks,
+    ctaTexts,
+    paragraphTexts,
+    testimonialTexts,
+    trustLogoLabels,
+    pricingTiers,
+    imagesCount: doc.querySelectorAll("img").length,
+    hasForm: doc.querySelectorAll("form").length > 0,
     bodyWordCount: words.length,
     youWeRatio: weCount === 0 ? (youCount > 0 ? 99 : 0) : youCount / weCount,
   };
 }
 
-// ─── ARCHETYPE INFERENCE (ported from run-audit, same signal set) ───
-function inferCurrentArchetype(metadata: MinimalMetadata): Archetype {
+function inferCurrentArchetype(signals: PageSignals): Archetype {
   const scores: Record<Archetype, number> = { Hero: 0, Sage: 0, Outlaw: 0, Caregiver: 0, Creator: 0, Ruler: 0 };
+  if (signals.youWeRatio >= 4) { scores.Hero += 2; scores.Caregiver += 1; }
+  else if (signals.youWeRatio >= 2) scores.Hero += 1;
+  else if (signals.youWeRatio < 1) { scores.Ruler += 1; scores.Sage += 1; }
 
-  if (metadata.youWeRatio >= 4) { scores.Hero += 2; scores.Caregiver += 1; }
-  else if (metadata.youWeRatio >= 2) { scores.Hero += 1; }
-  else if (metadata.youWeRatio < 1) { scores.Ruler += 1; scores.Sage += 1; }
+  const ctaText = signals.ctaTexts.join(" ").toLowerCase();
+  const verbCounts: [Archetype, number][] = [
+    ["Hero", countWordOccurrences(ctaText, ["get", "start", "fix", "build", "boost", "grow", "save", "win", "try"])],
+    ["Sage", countWordOccurrences(ctaText, ["learn", "explore", "read", "discover"])],
+    ["Ruler", countWordOccurrences(ctaText, ["apply", "request", "inquire"])],
+    ["Caregiver", countWordOccurrences(ctaText, ["talk", "support", "join", "chat", "connect"])],
+  ];
+  const topVerb = verbCounts.sort((a, b) => b[1] - a[1])[0];
+  if (topVerb[1] > 0) scores[topVerb[0]] += 2;
 
-  const ctaText = metadata.ctas.map((c) => c.text.toLowerCase()).join(" ");
-  const verbCounts: Record<Archetype, number> = {
-    Hero: countWordOccurrences(ctaText, ["get", "start", "fix", "build", "boost", "grow", "save", "win", "try"]),
-    Sage: countWordOccurrences(ctaText, ["learn", "explore", "read", "discover"]),
-    Ruler: countWordOccurrences(ctaText, ["apply", "request", "inquire"]),
-    Caregiver: countWordOccurrences(ctaText, ["talk", "support", "join", "chat", "connect"]),
-    Outlaw: 0,
-    Creator: 0,
-  };
-  const topVerbArchetype = (Object.entries(verbCounts) as [Archetype, number][]).sort((a, b) => b[1] - a[1])[0];
-  if (topVerbArchetype[1] > 0) scores[topVerbArchetype[0]] += 2;
+  if (signals.bodyWordCount > 800) scores.Sage += 2;
+  else if (signals.bodyWordCount < 300) { scores.Hero += 1; scores.Outlaw += 1; }
 
-  const lowerBody = metadata.bodyTextContent.toLowerCase();
-  if (hasAny(lowerBody, ["result", "increase", "reduc", "roi", "grew", "boost"])) scores.Hero += 1;
-  if (hasAny(lowerBody, ["research", "study", "methodology", "proven", "certified"])) scores.Sage += 1;
-  if (hasAny(lowerBody, ["award", "trusted by", "featured in", "partner"]) || metadata.images.filter((img) => /logo|client|partner|brand/i.test(img.src) || /logo|client|partner|brand/i.test(img.alt ?? "")).length >= 3) scores.Ruler += 1;
-  if (hasAny(lowerBody, ["story", "journey", "together", "community", "care"])) scores.Caregiver += 1;
-
-  if (metadata.bodyWordCount > 800) scores.Sage += 2;
-  else if (metadata.bodyWordCount < 300) { scores.Hero += 1; scores.Outlaw += 1; }
-
-  const headingText = metadata.headingTexts.join(" ").toLowerCase();
+  const headingText = `${signals.h1Text} ${signals.h2Texts.join(" ")}`.toLowerCase();
   if (hasAny(headingText, ["transform", "results", "faster", "grow", "boost", "win"])) scores.Hero += 2;
   if (hasAny(headingText, ["research", "proven", "methodology", "expert", "insight"])) scores.Sage += 2;
   if (hasAny(headingText, ["stop", "ditch", "break", "rules", "different"])) scores.Outlaw += 2;
   if (hasAny(headingText, ["support", "help", "care", "together", "safe", "guide"])) scores.Caregiver += 2;
   if (hasAny(headingText, ["premium", "exclusive", "leading", "definitive", "elite", "authority"])) scores.Ruler += 2;
   if (hasAny(headingText, ["craft", "design", "create", "portfolio", "studio"])) scores.Creator += 2;
+  if (signals.trustLogoLabels.length >= 3) scores.Ruler += 1;
+  if (signals.testimonialTexts.length > 0) scores.Caregiver += 1;
 
   const ranked = (Object.entries(scores) as [Archetype, number][]).sort((a, b) => b[1] - a[1]);
   return ranked[0][1] > 0 ? ranked[0][0] : "Hero";
 }
 
-// ─── CLAUDE API — UX JOURNEY DIAGNOSIS (same prompt/schema run-audit uses) ───
-const JOURNEY_SYSTEM_PROMPT = "You are a UX journey analyst. The site's story is the visitor's journey — arrival, understanding, trust-building, decision, action — not a brand-personality label. Archetype (current vs target) is only the lens for explaining WHY a stage breaks down, never the diagnosis itself. Never say a site 'is' or 'should be' an archetype as the verdict — describe where and why the visitor's journey breaks down, e.g. 'Visitors arrive expecting to understand what you do, but your hero section leads with a feature list instead of an outcome — they never build the trust needed to reach your CTA.' Every journey_break must be anchored to exactly one of the five journey stages. Never use jargon. Always ground reasons in the actual site copy provided. Always connect each break to conversion impact.";
+// ─── CLAUDE API — UX JOURNEY DIAGNOSIS (same shape run-audit uses, plus an
+// internal-only severity field used purely for this file's drift comparison). ───
+const JOURNEY_SYSTEM_PROMPT =
+  "You are UXpact's UX intelligence engine, re-checking a site you've diagnosed before. You read the site the way a " +
+  "visitor would and tell the story of what actually happens to them. The site's story is the visitor's journey — " +
+  "arrival, understanding, trust-building, decision, action — not a brand-personality label. Archetype (current vs " +
+  "target) is only the lens for explaining WHY a stage breaks down, never the diagnosis itself. Never say a site " +
+  "'is' or 'should be' an archetype as the verdict — describe where and why the visitor's journey breaks down. " +
+  "Every journey_break must be anchored to exactly one of the five journey stages, name what's happening, what " +
+  "should be happening instead, and why. For each break also write a concrete recommended fix, a ready-to-use AI " +
+  "prompt someone could paste into an AI coding tool to implement that fix, and a severity from 1 (minor) to 5 " +
+  "(critical) reflecting how badly this break hurts conversion right now — severity is an internal signal used only " +
+  "to detect whether things have gotten worse since the last check, never shown to the end user as a score. Ground " +
+  "everything in the real content given — never invent facts about the page. Never use jargon.";
 
 const JOURNEY_DIAGNOSIS_SCHEMA = {
   type: "object",
   properties: {
-    narrative_verdict: { type: "string" },
+    narrative_verdict: { type: "string", description: "2-3 sentences telling the story of what happens to a visitor on this page." },
     journey_breaks: {
       type: "array",
       items: {
         type: "object",
         properties: {
           journey_stage: { type: "string", enum: JOURNEY_STAGES },
-          element: { type: "string" },
-          current_archetype_signal: { type: "string" },
-          conflict_severity: { type: "integer", description: "Severity from 1 (minor) to 5 (critical)." },
+          element: { type: "string", description: "The specific page element this break is about, e.g. 'Hero headline' or 'Primary CTA'." },
+          whats_happening: { type: "string" },
+          what_should_happen: { type: "string" },
           reason: { type: "string" },
+          fix: { type: "string", description: "A concrete recommended fix." },
+          ai_prompt: { type: "string", description: "A ready-to-use prompt for an AI coding tool to implement the fix on the real site." },
+          severity: { type: "integer", description: "1 (minor) to 5 (critical) — internal only, never shown to the end user." },
         },
-        required: ["journey_stage", "element", "current_archetype_signal", "conflict_severity", "reason"],
+        required: ["journey_stage", "element", "whats_happening", "what_should_happen", "reason", "fix", "ai_prompt", "severity"],
         additionalProperties: false,
       },
     },
@@ -249,50 +312,57 @@ const JOURNEY_DIAGNOSIS_SCHEMA = {
 function sanitizeJourneyBreaks(breaks: unknown): JourneyBreak[] {
   if (!Array.isArray(breaks)) return [];
   return breaks
-    .filter((b): b is JourneyBreak => b && typeof b === "object" && JOURNEY_STAGES.includes((b as JourneyBreak).journey_stage) && typeof (b as JourneyBreak).conflict_severity === "number")
-    .map((b) => ({ ...b, conflict_severity: Math.min(5, Math.max(1, Math.round(b.conflict_severity))) }));
+    .filter((b): b is JourneyBreak => Boolean(b) && typeof b === "object" && JOURNEY_STAGES.includes((b as JourneyBreak).journey_stage) && typeof (b as JourneyBreak).severity === "number")
+    .map((b) => ({ ...b, severity: Math.min(5, Math.max(1, Math.round(b.severity))) }));
 }
 
 async function diagnoseJourney(args: {
-  metadata: MinimalMetadata;
+  signals: PageSignals;
   industry: Industry;
   goal: string;
   currentArchetype: Archetype;
   targetArchetype: Archetype;
-  totalScore: number;
 }): Promise<JourneyDiagnosis | null> {
   if (!ANTHROPIC_API_KEY) {
     console.error("check-drift diagnoseJourney: ANTHROPIC_API_KEY is not set — skipping AI diagnosis.");
     return null;
   }
-  const { metadata, industry, goal, currentArchetype, targetArchetype, totalScore } = args;
-  const revenueLeak = totalScore < 40 ? "£2,800/mo" : totalScore < 60 ? "£1,100/mo" : "£480/mo";
-
+  const { signals, industry, goal, currentArchetype, targetArchetype } = args;
   const userPayload = {
-    findings: [] as unknown[],
-    revenue_leak_estimate: revenueLeak,
     current_archetype: currentArchetype,
     target_archetype: targetArchetype,
-    h1: metadata.h1Text,
-    hero_copy_excerpt: metadata.paragraphExcerpt.slice(0, 200),
-    primary_cta_text: metadata.ctas[0]?.text ?? "",
-    meta_description: metadata.metaDescription ?? "",
     industry,
     goal,
+    domain: signals.domain,
+    title: signals.title,
+    meta_description: signals.metaDescription,
+    h1: signals.h1Text,
+    h2s: signals.h2Texts,
+    nav_links: signals.navLinks,
+    cta_texts: signals.ctaTexts,
+    paragraphs: signals.paragraphTexts,
+    testimonials: signals.testimonialTexts,
+    trust_logos: signals.trustLogoLabels,
+    pricing_tiers: signals.pricingTiers,
+    has_form: signals.hasForm,
+    images_count: signals.imagesCount,
+    body_word_count: signals.bodyWordCount,
+    you_we_ratio: Number(signals.youWeRatio.toFixed(2)),
   };
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8_000);
+  const timeoutId = setTimeout(() => controller.abort(), 90_000);
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       signal: controller.signal,
       headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({
-        model: "claude-haiku-4-5",
-        max_tokens: 1800,
+        model: "claude-opus-5",
+        max_tokens: 4000,
+        stream: true,
+        output_config: { effort: "medium", format: { type: "json_schema", schema: JOURNEY_DIAGNOSIS_SCHEMA } },
         system: [{ type: "text", text: JOURNEY_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-        output_config: { format: { type: "json_schema", schema: JOURNEY_DIAGNOSIS_SCHEMA } },
         messages: [{ role: "user", content: JSON.stringify(userPayload) }],
       }),
     });
@@ -301,13 +371,12 @@ async function diagnoseJourney(args: {
       console.error(`check-drift diagnoseJourney: Claude API returned ${response.status}: ${body.slice(0, 1000)}`);
       return null;
     }
-    const data = await response.json();
-    const textBlock = (data.content ?? []).find((b: { type: string }) => b.type === "text");
-    if (!textBlock?.text) {
-      console.error("check-drift diagnoseJourney: no text block in Claude response", JSON.stringify(data).slice(0, 1000));
+    const text = await readStreamedText(response);
+    if (!text) {
+      console.error("check-drift diagnoseJourney: no text content in streamed Claude response");
       return null;
     }
-    const parsed = JSON.parse(textBlock.text) as { narrative_verdict: string; journey_breaks: unknown };
+    const parsed = JSON.parse(text) as { narrative_verdict: string; journey_breaks: unknown };
     return { narrative_verdict: parsed.narrative_verdict, journey_breaks: sanitizeJourneyBreaks(parsed.journey_breaks) };
   } catch (error) {
     console.error("check-drift diagnoseJourney: request failed", error instanceof Error ? error.message : error);
@@ -357,7 +426,7 @@ async function assessRegression(args: {
     new_severity: args.newSeverity,
   };
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+  const timeoutId = setTimeout(() => controller.abort(), 20_000);
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -366,8 +435,9 @@ async function assessRegression(args: {
       body: JSON.stringify({
         model: "claude-opus-5",
         max_tokens: 800,
+        stream: true,
+        output_config: { effort: "medium", format: { type: "json_schema", schema: REGRESSION_SCHEMA } },
         system: [{ type: "text", text: REGRESSION_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-        output_config: { format: { type: "json_schema", schema: REGRESSION_SCHEMA } },
         messages: [{ role: "user", content: JSON.stringify(userPayload) }],
       }),
     });
@@ -376,10 +446,9 @@ async function assessRegression(args: {
       console.error(`check-drift assessRegression: Claude API returned ${response.status}: ${body.slice(0, 500)}`);
       return null;
     }
-    const data = await response.json();
-    const textBlock = (data.content ?? []).find((b: { type: string }) => b.type === "text");
-    if (!textBlock?.text) return null;
-    const parsed = JSON.parse(textBlock.text) as RegressionAssessment;
+    const text = await readStreamedText(response);
+    if (!text) return null;
+    const parsed = JSON.parse(text) as RegressionAssessment;
     if (parsed.regression_type !== "one_off" && parsed.regression_type !== "repeated") return null;
     return parsed;
   } catch (error) {
@@ -455,7 +524,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // against this audit's full stored history, and reason about any regression found.
   const { data: audit } = await supabase
     .from("audits")
-    .select("url, industry, goal, target_archetype, score")
+    .select("url, domain, industry, goal, target_archetype")
     .eq("id", auditId)
     .maybeSingle();
 
@@ -465,16 +534,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (fetchResult.success) {
       const doc = new DOMParser().parseFromString(fetchResult.html, "text/html");
       if (doc) {
-        const metadata = extractMinimalMetadata(doc);
-        const currentArchetype = inferCurrentArchetype(metadata);
+        const signals = extractSignals(doc, (audit.domain as string) ?? domain ?? "");
+        const currentArchetype = inferCurrentArchetype(signals);
         const targetArchetype = (audit.target_archetype as Archetype) ?? "Hero";
         const diagnosis = await diagnoseJourney({
-          metadata,
+          signals,
           industry: (audit.industry as Industry) ?? "saas",
           goal: audit.goal ?? "",
           currentArchetype,
           targetArchetype,
-          totalScore: audit.score ?? 50,
         });
 
         if (diagnosis) {
@@ -500,7 +568,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
           // Persist this run's readings so the NEXT check has one more history point —
           // an audit's drift history accumulates across every expensive-path run, not
-          // just the original diagnosis.
+          // just the original diagnosis. Same column shape run-audit writes.
           if (diagnosis.journey_breaks.length > 0) {
             const historyRows = diagnosis.journey_breaks.map((b) => ({
               audit_id: auditId,
@@ -509,9 +577,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
               target_archetype: targetArchetype,
               journey_stage: b.journey_stage,
               element: b.element,
-              current_archetype_signal: b.current_archetype_signal,
-              conflict_severity: b.conflict_severity,
+              current_archetype_signal: b.whats_happening,
+              what_should_happen: b.what_should_happen,
+              conflict_severity: b.severity,
               reason: b.reason,
+              fix: b.fix,
+              ai_prompt: b.ai_prompt,
             }));
             const { error: historyError } = await supabase.from("archetype_consistency_scores").insert(historyRows);
             if (historyError) console.error("check-drift: failed to append drift history:", historyError.message);
@@ -520,13 +591,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
           const newMaxByStage = new Map<JourneyStage, JourneyBreak>();
           for (const brk of diagnosis.journey_breaks) {
             const existing = newMaxByStage.get(brk.journey_stage);
-            if (!existing || brk.conflict_severity > existing.conflict_severity) newMaxByStage.set(brk.journey_stage, brk);
+            if (!existing || brk.severity > existing.severity) newMaxByStage.set(brk.journey_stage, brk);
           }
 
           const eventsToInsert: Record<string, unknown>[] = [];
           for (const [stage, brk] of newMaxByStage.entries()) {
             const priorSeverity = priorMaxByStage.get(stage) ?? 0;
-            const delta = brk.conflict_severity - priorSeverity;
+            const delta = brk.severity - priorSeverity;
             if (delta < 1) continue;
 
             const history = historyByStage.get(stage) ?? [];
@@ -534,7 +605,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
               journeyStage: stage,
               element: brk.element,
               history,
-              newSeverity: brk.conflict_severity,
+              newSeverity: brk.severity,
             });
 
             eventsToInsert.push({

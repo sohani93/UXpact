@@ -32,27 +32,28 @@ export default function NodeMap({ burst = false }: { burst?: boolean }) {
       ns.current = { n, cn };
     }
     const { n, cn } = ns.current;
+    const context = ctx;
     function draw() {
       const t = (Date.now() - t0.current) / 1000;
-      ctx.clearRect(0, 0, W, H);
+      context.clearRect(0, 0, W, H);
       const wR = burst ? 999 : ((t * 40) % 210);
       cn.forEach(([a, b]) => {
         const na = n[a], nb = n[b], md = (Math.hypot(na.x - W / 2, na.y - H / 2) + Math.hypot(nb.x - W / 2, nb.y - H / 2)) / 2;
         const act = md < wR, isV = nb.c === "violet";
-        ctx.beginPath(); ctx.moveTo(na.x, na.y); ctx.lineTo(nb.x, nb.y);
+        context.beginPath(); context.moveTo(na.x, na.y); context.lineTo(nb.x, nb.y);
         const ba = burst ? 0.5 : (0.18 + Math.sin(t * 2 + a) * 0.08);
-        ctx.strokeStyle = act ? (isV ? `rgba(91,97,244,${ba})` : `rgba(20,213,113,${ba})`) : (isV ? "rgba(91,97,244,0.05)" : "rgba(20,140,89,0.05)");
-        ctx.lineWidth = act ? (burst ? 1.5 : 1) : 0.5; ctx.stroke();
-        if (act && !burst) { const pt = (t * 0.8 + a * 0.3) % 1; ctx.beginPath(); ctx.arc(na.x + (nb.x - na.x) * pt, na.y + (nb.y - na.y) * pt, 1.2, 0, Math.PI * 2); ctx.fillStyle = `rgba(20,213,113,${0.5 * (1 - Math.abs(pt - 0.5) * 2)})`; ctx.fill(); }
+        context.strokeStyle = act ? (isV ? `rgba(91,97,244,${ba})` : `rgba(20,213,113,${ba})`) : (isV ? "rgba(91,97,244,0.05)" : "rgba(20,140,89,0.05)");
+        context.lineWidth = act ? (burst ? 1.5 : 1) : 0.5; context.stroke();
+        if (act && !burst) { const pt = (t * 0.8 + a * 0.3) % 1; context.beginPath(); context.arc(na.x + (nb.x - na.x) * pt, na.y + (nb.y - na.y) * pt, 1.2, 0, Math.PI * 2); context.fillStyle = `rgba(20,213,113,${0.5 * (1 - Math.abs(pt - 0.5) * 2)})`; context.fill(); }
       });
       n.forEach((nd: any) => {
         const d = Math.hypot(nd.x - W / 2, nd.y - H / 2), act = d < wR, int = act ? Math.min(1, (wR - d) / 40) : 0;
-        ctx.beginPath(); ctx.arc(nd.x, nd.y, burst ? nd.r * 1.3 : nd.r, 0, Math.PI * 2);
-        if (nd.c === "forest") ctx.fillStyle = C.forest;
-        else if (burst) ctx.fillStyle = nd.c === "violet" ? "rgba(91,97,244,0.9)" : "rgba(20,213,113,0.9)";
-        else if (nd.c === "violet") ctx.fillStyle = act ? `rgba(91,97,244,${0.3 + int * 0.7})` : "rgba(91,97,244,0.12)";
-        else ctx.fillStyle = act ? `rgba(20,213,113,${0.3 + int * 0.7})` : "rgba(20,140,89,0.12)";
-        ctx.fill();
+        context.beginPath(); context.arc(nd.x, nd.y, burst ? nd.r * 1.3 : nd.r, 0, Math.PI * 2);
+        if (nd.c === "forest") context.fillStyle = C.forest;
+        else if (burst) context.fillStyle = nd.c === "violet" ? "rgba(91,97,244,0.9)" : "rgba(20,213,113,0.9)";
+        else if (nd.c === "violet") context.fillStyle = act ? `rgba(91,97,244,${0.3 + int * 0.7})` : "rgba(91,97,244,0.12)";
+        else context.fillStyle = act ? `rgba(20,213,113,${0.3 + int * 0.7})` : "rgba(20,140,89,0.12)";
+        context.fill();
       });
       raf.current = requestAnimationFrame(draw);
     }

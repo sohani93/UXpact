@@ -36,22 +36,6 @@ const KEYFRAMES = `
 .fade-in{animation:fadeIn 0.4s ease both}
 `;
 
-function getMobileDropoff(findings: any[]): number {
-  let v = 35;
-  const titles = findings.map(f => `${f.name} ${f.finding}`.toLowerCase());
-  if (titles.some(t => t.includes("above fold") || t.includes("cta"))) v += 12;
-  if (titles.some(t => t.includes("viewport"))) v += 8;
-  if (titles.some(t => t.includes("spacing") || t.includes("layout"))) v += 5;
-  return Math.min(65, Math.round(v / 5) * 5);
-}
-
-function getAtRisk(score: number, criticalIssues: number): string {
-  if (score < 40 && criticalIssues > 2) return "£5,200/mo";
-  if (score < 40) return "£2,800/mo";
-  if (score < 60) return "£1,100/mo";
-  return "£480/mo";
-}
-
 type LoadingStateProps = {
   url: string;
   goals: string[];
@@ -116,8 +100,6 @@ export default function LoadingState({ url, goals, auditData, onAccess, onError 
 
   const showResult = phase === "result";
   const displayGoals = goals.slice(0, 5);
-  const mobileDropoff = auditData ? getMobileDropoff(auditData.findings) : 42;
-  const atRisk = auditData ? getAtRisk(auditData.score, auditData.criticalIssues) : "£2,800/mo";
 
   return (
     <div className="fade-in" style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Space Grotesk',sans-serif", position: "relative", overflow: "hidden" }}>
@@ -164,14 +146,12 @@ export default function LoadingState({ url, goals, auditData, onAccess, onError 
 
           {showResult && auditData && (
             <CompactResults
-              score={auditData.score}
-              topFindings={auditData.topFindings}
-              mobileDropoff={mobileDropoff}
-              atRisk={atRisk}
+              narrativeVerdict={auditData.narrativeVerdict}
+              revenueLeakEstimate={auditData.revenueLeakEstimate}
+              journeyBreaks={auditData.journeyBreaks}
+              diagnosisError={auditData.diagnosisError}
               onAccess={onAccess}
               animated={anim}
-              narrativeVerdict={auditData.narrativeVerdict}
-              journeyBreaks={auditData.journeyBreaks}
             />
           )}
         </div>
