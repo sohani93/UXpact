@@ -2,12 +2,28 @@ import { DOMParser } from "https://deno.land/x/deno_dom/deno-dom-wasm.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ─── CHECK-DRIFT — Layer 3 (Pulse Pro drift monitor) ───
-// Called by the embed script only when serve-variant flags driftCheckDue.
-// Cheap path (the common case): diff the reported per-zone fingerprints
-// against the stored baseline, update the baseline, return. Expensive path
-// (rare, throttled to once per 6h per audit): re-fetch the live URL
-// server-side, re-run the same journey diagnosis run-audit uses, and log a
-// drift_events row for any journey stage whose severity rose by >=1.
+// Two ways in:
+// 1. Reactive — called by the embed script with `fingerprints` when
+//    serve-variant flags driftCheckDue. Cheap path (the common case): diff
+//    the reported per-zone fingerprints against the stored baseline, update
+//    the baseline, return. Expensive path (throttled to once per 6h per
+//    audit): re-fetch the live URL server-side, re-run the journey
+//    diagnosis, and log a drift_events row for any journey stage whose
+//    severity rose.
+// 2. Scheduled — called by pg_cron (see the check_drift_scheduled_sweep job)
+//    with just {auditId, domain}, no fingerprints. Skips the fingerprint
+//    gate entirely and always takes the expensive path (still respecting the
+//    6h throttle), so a site with zero visitor traffic still gets checked —
+//    drift detection isn't purely reactive to traffic.
+//
+// Every expensive-path run appends its journey_breaks to
+// archetype_consistency_scores rather than only reading it — this is what
+// gives an audit a real, accumulating drift history instead of a single
+// fixed baseline. When a stage's severity rises, a second Claude call reasons
+// over that stage's full historical severity sequence (not just this run vs.
+// the last one) to judge whether it's a one-off dip or a repeated/escalating
+// regression, and that judgment — not a bare number — is what lands in
+// drift_events.
 //
 // Duplicates a minimal slice of run-audit's metadata extraction and journey
 // diagnosis logic rather than importing it — Edge Functions don't share a
@@ -218,7 +234,7 @@ const JOURNEY_DIAGNOSIS_SCHEMA = {
           journey_stage: { type: "string", enum: JOURNEY_STAGES },
           element: { type: "string" },
           current_archetype_signal: { type: "string" },
-          conflict_severity: { type: "integer", minimum: 1, maximum: 5 },
+          conflict_severity: { type: "integer", description: "Severity from 1 (minor) to 5 (critical)." },
           reason: { type: "string" },
         },
         required: ["journey_stage", "element", "current_archetype_signal", "conflict_severity", "reason"],
@@ -245,7 +261,10 @@ async function diagnoseJourney(args: {
   targetArchetype: Archetype;
   totalScore: number;
 }): Promise<JourneyDiagnosis | null> {
-  if (!ANTHROPIC_API_KEY) return null;
+  if (!ANTHROPIC_API_KEY) {
+    console.error("check-drift diagnoseJourney: ANTHROPIC_API_KEY is not set — skipping AI diagnosis.");
+    return null;
+  }
   const { metadata, industry, goal, currentArchetype, targetArchetype, totalScore } = args;
   const revenueLeak = totalScore < 40 ? "£2,800/mo" : totalScore < 60 ? "£1,100/mo" : "£480/mo";
 
@@ -277,13 +296,94 @@ async function diagnoseJourney(args: {
         messages: [{ role: "user", content: JSON.stringify(userPayload) }],
       }),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      console.error(`check-drift diagnoseJourney: Claude API returned ${response.status}: ${body.slice(0, 1000)}`);
+      return null;
+    }
+    const data = await response.json();
+    const textBlock = (data.content ?? []).find((b: { type: string }) => b.type === "text");
+    if (!textBlock?.text) {
+      console.error("check-drift diagnoseJourney: no text block in Claude response", JSON.stringify(data).slice(0, 1000));
+      return null;
+    }
+    const parsed = JSON.parse(textBlock.text) as { narrative_verdict: string; journey_breaks: unknown };
+    return { narrative_verdict: parsed.narrative_verdict, journey_breaks: sanitizeJourneyBreaks(parsed.journey_breaks) };
+  } catch (error) {
+    console.error("check-drift diagnoseJourney: request failed", error instanceof Error ? error.message : error);
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// ─── CLAUDE API — REGRESSION REASONING ACROSS FULL DRIFT HISTORY ───
+const REGRESSION_SYSTEM_PROMPT =
+  "You are a UX regression analyst. You are given the full historical sequence of severity readings (1-5) for a single " +
+  "journey stage on one site, oldest first, plus this run's new reading. Decide whether the new rise is a one-off dip — " +
+  "noise, a temporary A/B test, a single bad snapshot — or a repeated/escalating regression worth escalating differently: " +
+  "severity climbing across multiple readings, or the same or worse severity recurring after it was previously flagged. " +
+  "Ground your judgment in the actual sequence given, not assumptions.";
+
+const REGRESSION_SCHEMA = {
+  type: "object",
+  properties: {
+    regression_type: { type: "string", enum: ["one_off", "repeated"] },
+    reasoning: { type: "string", description: "One or two sentences, citing the specific historical readings that justify the judgment." },
+  },
+  required: ["regression_type", "reasoning"],
+  additionalProperties: false,
+};
+
+interface RegressionAssessment {
+  regression_type: "one_off" | "repeated";
+  reasoning: string;
+}
+
+async function assessRegression(args: {
+  journeyStage: JourneyStage;
+  element: string;
+  history: { severity: number; checkedAt: string }[];
+  newSeverity: number;
+}): Promise<RegressionAssessment | null> {
+  if (!ANTHROPIC_API_KEY) {
+    console.error("check-drift assessRegression: ANTHROPIC_API_KEY is not set — skipping regression reasoning.");
+    return null;
+  }
+  const userPayload = {
+    journey_stage: args.journeyStage,
+    element: args.element,
+    historical_severities_oldest_first: args.history.map((h) => ({ severity: h.severity, checked_at: h.checkedAt })),
+    new_severity: args.newSeverity,
+  };
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: "claude-opus-5",
+        max_tokens: 800,
+        system: [{ type: "text", text: REGRESSION_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+        output_config: { format: { type: "json_schema", schema: REGRESSION_SCHEMA } },
+        messages: [{ role: "user", content: JSON.stringify(userPayload) }],
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      console.error(`check-drift assessRegression: Claude API returned ${response.status}: ${body.slice(0, 500)}`);
+      return null;
+    }
     const data = await response.json();
     const textBlock = (data.content ?? []).find((b: { type: string }) => b.type === "text");
     if (!textBlock?.text) return null;
-    const parsed = JSON.parse(textBlock.text) as { narrative_verdict: string; journey_breaks: unknown };
-    return { narrative_verdict: parsed.narrative_verdict, journey_breaks: sanitizeJourneyBreaks(parsed.journey_breaks) };
-  } catch {
+    const parsed = JSON.parse(textBlock.text) as RegressionAssessment;
+    if (parsed.regression_type !== "one_off" && parsed.regression_type !== "repeated") return null;
+    return parsed;
+  } catch (error) {
+    console.error("check-drift assessRegression: request failed", error instanceof Error ? error.message : error);
     return null;
   } finally {
     clearTimeout(timeoutId);
@@ -318,7 +418,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const auditId = typeof payload.auditId === "string" ? payload.auditId : null;
   const domain = typeof payload.domain === "string" ? payload.domain : null;
   const fingerprints = payload.fingerprints && typeof payload.fingerprints === "object" ? payload.fingerprints : null;
-  if (!auditId || !fingerprints) return jsonResponse({ checked: false }, 400);
+  if (!auditId) return jsonResponse({ checked: false }, 400);
+
+  // No fingerprints = a scheduled (pg_cron) sweep, not a reactive visitor-triggered call.
+  // Skip the fingerprint-candidate gate entirely — a site with zero traffic still gets checked.
+  const scheduled = !fingerprints;
 
   const { data: snapshot } = await supabase
     .from("site_snapshots")
@@ -326,21 +430,29 @@ Deno.serve(async (req: Request): Promise<Response> => {
     .eq("audit_id", auditId)
     .maybeSingle();
 
-  const baseline = (snapshot?.zone_fingerprints as Record<string, ZoneFingerprint> | null) ?? null;
-  const candidate = hasCandidateZone(fingerprints, baseline);
   const throttled = Boolean(snapshot?.last_full_check_at) && Date.now() - new Date(snapshot!.last_full_check_at as string).getTime() < FULL_CHECK_THROTTLE_MS;
 
-  // Cheap path: no candidate change, or a candidate exists but we're still throttled.
-  // Either way, just refresh the baseline fingerprints and move on.
-  if (!candidate || throttled) {
-    await supabase.from("site_snapshots").upsert(
-      { audit_id: auditId, domain, zone_fingerprints: fingerprints, last_checked_at: new Date().toISOString() },
-      { onConflict: "audit_id" },
-    );
-    return jsonResponse({ checked: true, escalated: false }, 200);
+  if (!scheduled) {
+    const baseline = (snapshot?.zone_fingerprints as Record<string, ZoneFingerprint> | null) ?? null;
+    const candidate = hasCandidateZone(fingerprints!, baseline);
+
+    // Cheap path: no candidate change, or a candidate exists but we're still throttled.
+    // Either way, just refresh the baseline fingerprints and move on.
+    if (!candidate || throttled) {
+      await supabase.from("site_snapshots").upsert(
+        { audit_id: auditId, domain, zone_fingerprints: fingerprints, last_checked_at: new Date().toISOString() },
+        { onConflict: "audit_id" },
+      );
+      return jsonResponse({ checked: true, escalated: false }, 200);
+    }
+  } else if (throttled) {
+    // Scheduled sweep landed inside an already-fresh window (e.g. a visitor triggered
+    // the expensive path recently) — nothing new to do.
+    return jsonResponse({ checked: true, escalated: false, scheduled: true, skipped: "throttled" }, 200);
   }
 
-  // Expensive path: re-fetch the live URL, re-run the journey diagnosis, diff severities.
+  // Expensive path: re-fetch the live URL, re-run the journey diagnosis, diff severities
+  // against this audit's full stored history, and reason about any regression found.
   const { data: audit } = await supabase
     .from("audits")
     .select("url, industry, goal, target_archetype, score")
@@ -366,15 +478,43 @@ Deno.serve(async (req: Request): Promise<Response> => {
         });
 
         if (diagnosis) {
+          // Full prior history per stage, oldest first — this is what makes the
+          // regression call "reason across history" rather than diff a single number.
           const { data: storedBreaks } = await supabase
             .from("archetype_consistency_scores")
-            .select("journey_stage, conflict_severity")
-            .eq("audit_id", auditId);
+            .select("journey_stage, conflict_severity, created_at")
+            .eq("audit_id", auditId)
+            .order("created_at", { ascending: true });
 
-          const storedMaxByStage = new Map<JourneyStage, number>();
+          const historyByStage = new Map<JourneyStage, { severity: number; checkedAt: string }[]>();
           for (const row of storedBreaks ?? []) {
             const stage = row.journey_stage as JourneyStage;
-            storedMaxByStage.set(stage, Math.max(storedMaxByStage.get(stage) ?? 0, row.conflict_severity ?? 0));
+            const list = historyByStage.get(stage) ?? [];
+            list.push({ severity: row.conflict_severity ?? 0, checkedAt: row.created_at as string });
+            historyByStage.set(stage, list);
+          }
+          const priorMaxByStage = new Map<JourneyStage, number>();
+          for (const [stage, list] of historyByStage.entries()) {
+            priorMaxByStage.set(stage, Math.max(0, ...list.map((h) => h.severity)));
+          }
+
+          // Persist this run's readings so the NEXT check has one more history point —
+          // an audit's drift history accumulates across every expensive-path run, not
+          // just the original diagnosis.
+          if (diagnosis.journey_breaks.length > 0) {
+            const historyRows = diagnosis.journey_breaks.map((b) => ({
+              audit_id: auditId,
+              narrative_verdict: diagnosis.narrative_verdict,
+              current_archetype: currentArchetype,
+              target_archetype: targetArchetype,
+              journey_stage: b.journey_stage,
+              element: b.element,
+              current_archetype_signal: b.current_archetype_signal,
+              conflict_severity: b.conflict_severity,
+              reason: b.reason,
+            }));
+            const { error: historyError } = await supabase.from("archetype_consistency_scores").insert(historyRows);
+            if (historyError) console.error("check-drift: failed to append drift history:", historyError.message);
           }
 
           const newMaxByStage = new Map<JourneyStage, JourneyBreak>();
@@ -385,33 +525,57 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
           const eventsToInsert: Record<string, unknown>[] = [];
           for (const [stage, brk] of newMaxByStage.entries()) {
-            const priorSeverity = storedMaxByStage.get(stage) ?? 0;
+            const priorSeverity = priorMaxByStage.get(stage) ?? 0;
             const delta = brk.conflict_severity - priorSeverity;
-            if (delta >= 1) {
-              eventsToInsert.push({
-                audit_id: auditId,
-                domain,
-                element: brk.element,
-                severity_delta: delta,
-                suggested_variant_id: null,
-              });
+            if (delta < 1) continue;
+
+            const history = historyByStage.get(stage) ?? [];
+            const assessment = await assessRegression({
+              journeyStage: stage,
+              element: brk.element,
+              history,
+              newSeverity: brk.conflict_severity,
+            });
+
+            eventsToInsert.push({
+              audit_id: auditId,
+              domain,
+              element: brk.element,
+              severity_delta: delta,
+              suggested_variant_id: null,
+              regression_type: assessment?.regression_type ?? null,
+              reasoning: assessment?.reasoning ?? null,
+            });
+            if (!assessment) {
+              console.error(`check-drift: regression reasoning failed for stage "${stage}" on audit ${auditId} — logging the drift event without a regression_type.`);
             }
           }
 
           if (eventsToInsert.length > 0) {
             const { error: insertError } = await supabase.from("drift_events").insert(eventsToInsert);
             if (!insertError) driftEventsLogged = eventsToInsert.length;
+            else console.error("check-drift: failed to insert drift_events:", insertError.message);
           }
+        } else {
+          console.error(`check-drift: journey diagnosis failed for audit ${auditId} (${audit.url}) — see diagnoseJourney logs above.`);
         }
       }
+    } else {
+      console.error(`check-drift: failed to re-fetch ${audit.url} for scheduled/expensive drift check:`, fetchResult.error);
     }
   }
 
   const now = new Date().toISOString();
   await supabase.from("site_snapshots").upsert(
-    { audit_id: auditId, domain, zone_fingerprints: fingerprints, last_checked_at: now, last_full_check_at: now },
+    {
+      audit_id: auditId,
+      domain,
+      zone_fingerprints: fingerprints ?? (snapshot?.zone_fingerprints as Record<string, ZoneFingerprint> | null) ?? {},
+      last_checked_at: now,
+      last_full_check_at: now,
+    },
     { onConflict: "audit_id" },
   );
 
-  return jsonResponse({ checked: true, escalated: true, driftEventsLogged }, 200);
+  return jsonResponse({ checked: true, escalated: true, scheduled, driftEventsLogged }, 200);
 });

@@ -4,7 +4,7 @@ import Nav from "../components/Nav";
 import Blobs from "../components/Blobs";
 
 const C = {
-  bg: "#EEF1F5", navy: "#0B1C48", forest: "#186132", emerald: "#148C59",
+  bg: "#F9F9F9", navy: "#0B1C48", forest: "#186132", emerald: "#148C59",
   mint: "#14D571", violet: "#5B61F4", muted: "#6B7280", dim: "#9CA3AF",
 };
 
@@ -138,22 +138,22 @@ export default function ProReaudit({ auditId }: { auditId: string }) {
                 <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
                   {[["Previous", "61", C.dim], ["", "→", C.mint], ["Now", "74", C.emerald]].map(([label, val, col], i) => (
                     label === "" ? (
-                      <div key={i} style={{ fontSize: 22, color: col, fontWeight: 300 }}>{val}</div>
+                      <div key={i} style={{ fontSize: 22, color: col, fontWeight: 400 }}>{val}</div>
                     ) : (
                       <div key={i} style={{ textAlign: "center" }}>
                         <div style={{ fontSize: 10, fontWeight: 600, color: C.dim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>{label}</div>
-                        <div style={{ fontFamily: "'Unbounded',sans-serif", fontSize: label === "Now" ? 32 : 24, fontWeight: 800, color: col }}>{val}</div>
+                        <div style={{ fontFamily: "'Unbounded',sans-serif", fontSize: label === "Now" ? 32 : 24, fontWeight: 700, color: col }}>{val}</div>
                       </div>
                     )
                   ))}
                   <div style={{ padding: "5px 14px", borderRadius: 20, background: "rgba(20,213,113,0.15)", border: "1px solid rgba(20,213,113,0.25)" }}>
-                    <span style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 13, fontWeight: 800, color: C.emerald }}>+13 pts</span>
+                    <span style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 13, fontWeight: 700, color: C.emerald }}>+13 pts</span>
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 20 }}>
                   {[[resolved.length, "Resolved", "#16A34A"], [improved.length, "Improved", C.emerald], [regressed.length, "Regressed", "#F59E0B"], [unchanged.length, "Unchanged", C.dim]].map(([n, l, c]) => (
                     <div key={l} style={{ textAlign: "center" }}>
-                      <div style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 20, fontWeight: 800, color: c }}>{n}</div>
+                      <div style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 20, fontWeight: 700, color: c }}>{n}</div>
                       <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>{l}</div>
                     </div>
                   ))}

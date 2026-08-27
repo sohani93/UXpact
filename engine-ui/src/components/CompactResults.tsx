@@ -89,13 +89,13 @@ export default function CompactResults({ score, topFindings, mobileDropoff, atRi
       {/* Metrics */}
       <div className="fade-up" style={{ animationDelay: "0.5s", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0, width: "100%", maxWidth: 420, borderRadius: 10, overflow: "hidden", border: "1px solid rgba(255,255,255,0.65)", background: "rgba(255,255,255,0.5)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", boxShadow: "0 4px 16px rgba(0,0,0,0.06)" }}>
         <div style={{ padding: "16px 18px", borderRight: "1px solid rgba(0,0,0,0.05)", textAlign: "center" }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: C.forest, fontFamily: "'Unbounded',sans-serif", marginBottom: 3 }}>~{mobileDropoff}%</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: C.forest, fontFamily: "'Unbounded',sans-serif", marginBottom: 3 }}>~{mobileDropoff}%</div>
           <div style={{ fontSize: 11, fontWeight: 500, color: C.muted }}>mobile drop-off</div>
         </div>
         <div style={{ padding: "16px 18px", textAlign: "center" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, marginBottom: 3 }}>
             <span style={{ fontSize: 15 }}>⚠️</span>
-            <span style={{ fontSize: 22, fontWeight: 800, color: C.navy, fontFamily: "'Unbounded',sans-serif" }}>~{atRisk}</span>
+            <span style={{ fontSize: 22, fontWeight: 700, color: C.navy, fontFamily: "'Unbounded',sans-serif" }}>~{atRisk}</span>
           </div>
           <div style={{ fontSize: 11, fontWeight: 500, color: C.muted }}>at risk</div>
         </div>

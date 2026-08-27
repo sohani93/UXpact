@@ -7,7 +7,7 @@ import ArcGauge from "../components/ArcGauge";
 
 // ── Design tokens ──────────────────────────────────────────────────────
 const C = {
-  bg: "#EEF1F5", navy: "#0B1C48", forest: "#186132", emerald: "#148C59",
+  bg: "#F9F9F9", navy: "#0B1C48", forest: "#186132", emerald: "#148C59",
   mint: "#14D571", violet: "#5B61F4", muted: "#6B7280", dim: "#9CA3AF",
   red: "#DC2626", amber: "#F97316", yellow: "#EAB308",
 };
@@ -22,7 +22,7 @@ const glass = {
 const cardBgs = [
   { background: "rgba(255,255,255,0.65)", backdropFilter: "blur(24px)", border: "1px solid rgba(255,255,255,0.7)" },
   { background: "linear-gradient(160deg,rgba(20,213,113,0.09) 0%,rgba(255,255,255,0.55) 100%)", backdropFilter: "blur(24px)", border: "1px solid rgba(20,213,113,0.12)" },
-  { background: "#EEF1F5", border: "none", boxShadow: "0 4px 24px rgba(0,0,0,0.08)" },
+  { background: "#F9F9F9", border: "none", boxShadow: "0 4px 24px rgba(0,0,0,0.08)" },
 ];
 
 const KEYFRAMES = `
@@ -196,7 +196,7 @@ function FindingCard({ f, state, onState, active, onOpen }) {
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "15px 18px", cursor: "pointer", userSelect: "none" }} onClick={handleClick}>
         <div style={{ width: 9, height: 9, borderRadius: "50%", background: sevDot, flexShrink: 0, boxShadow: `0 0 6px ${sevDot}55` }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 650, color: C.navy, marginBottom: 1, textDecoration: state === "done" ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</div>
+          <div style={{ fontSize: 13.5, fontWeight: 660, color: C.navy, marginBottom: 1, textDecoration: state === "done" ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</div>
           <div style={{ fontSize: 11, color: C.muted }}>{f.category || ""}</div>
         </div>
         <div onClick={cycleState} style={{ ...STATE_STYLE[state], padding: "3px 11px", borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'Space Grotesk',sans-serif", letterSpacing: "0.3px", transition: "all 0.25s ease", flexShrink: 0, userSelect: "none" }}>{STATE_LABEL[state]}</div>
@@ -233,7 +233,7 @@ function CatScores({ cats }) {
             <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(255,255,255,0.75)", lineHeight: 1.3 }}>{cat.name}</span>
             <span style={{ fontSize: 8, fontWeight: 700, color: sev.color, background: "rgba(255,255,255,0.9)", borderRadius: 20, padding: "1px 7px", flexShrink: 0 }}>{sev.label}</span>
           </div>
-          <span style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 16, fontWeight: 800, color: "#fff", flexShrink: 0, marginLeft: 8, animation: `countUp 0.5s ease ${i * 0.1}s both` }}>{cat.score}</span>
+          <span style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 16, fontWeight: 700, color: "#fff", flexShrink: 0, marginLeft: 8, animation: `countUp 0.5s ease ${i * 0.1}s both` }}>{cat.score}</span>
         </div>
         <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.2)", overflow: "hidden" }}>
           <div style={{ height: "100%", borderRadius: 2, background: "rgba(255,255,255,0.85)", width: mounted ? `${cat.score}%` : "0%", transition: `width 0.9s cubic-bezier(0.16,1,0.3,1) ${i * 0.1}s` }} />
@@ -268,7 +268,7 @@ function CBTile({ item, delay }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
         <div style={{ fontSize: 10.5, fontWeight: 700, color: C.navy }}>{item.label}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <span style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 14, fontWeight: 800, color: getScoreColor(item.score) }}>{item.score}</span>
+          <span style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 14, fontWeight: 700, color: getScoreColor(item.score) }}>{item.score}</span>
           <span style={{ fontSize: 8.5, fontWeight: 700, color: sc.color, background: sc.bg, borderRadius: 20, padding: "2px 7px" }}>{sc.label}</span>
           <span style={{ fontSize: 9, color: C.dim, transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>▾</span>
         </div>
@@ -714,7 +714,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
                 { pct: `~${friction}%`,      label: "copy friction",           desc: "Conversion lift missed from feature-led vs benefit-led headlines.",          color: C.emerald },
               ].map((r, i) => (
                 <div key={i} style={{ padding: "20px 16px", borderRadius: 12, background: "rgba(255,255,255,0.8)", border: "1px solid rgba(255,255,255,0.9)", textAlign: "center", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", animation: `fadeUp 0.3s ease ${i * 0.07}s both` }}>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: r.color, fontFamily: "'Unbounded',sans-serif", marginBottom: 4 }}>{r.pct}</div>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: r.color, fontFamily: "'Unbounded',sans-serif", marginBottom: 4 }}>{r.pct}</div>
                   <div style={{ fontSize: 12, fontWeight: 700, color: C.navy, marginBottom: 6 }}>{r.label}</div>
                   <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>{r.desc}</div>
                 </div>
@@ -724,7 +724,7 @@ export default function FullReport({ auditId }: { auditId: string }) {
           </div>
 
           {/* Card 3 — Findings with tabs (sticky) */}
-          <div style={{ position: "sticky", top: 20, zIndex: 20, borderRadius: 16, marginBottom: 16, background: "#EEF1F5", boxShadow: "0 4px 24px rgba(0,0,0,0.08)" }}>
+          <div style={{ position: "sticky", top: 20, zIndex: 20, borderRadius: 16, marginBottom: 16, background: "#F9F9F9", boxShadow: "0 4px 24px rgba(0,0,0,0.08)" }}>
             {activeF && (
               <div style={{ padding: "12px 16px", borderBottom: "1px solid rgba(0,0,0,0.06)", background: "rgba(255,255,255,0.6)", borderRadius: "16px 16px 0 0", animation: "fadeUp 0.2s ease both" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>

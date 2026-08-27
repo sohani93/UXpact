@@ -1,10 +1,19 @@
 // ─── UXPACT VISION SANDBOX — generate-vision Edge Function ───
-// Accepts a user's Vision sandbox choices, sends the real site HTML through
-// the Python DOM-fidelity microservice, then has Claude rewrite/restructure
-// it per those choices. Returns the complete regenerated HTML document.
+// Step 1 of 2. Accepts a user's Vision sandbox choices, sends the real site
+// HTML through the Python DOM-fidelity microservice, then has Claude
+// rewrite/restructure it per those choices. Returns a jobId immediately and
+// does the actual work via EdgeRuntime.waitUntil — Supabase Edge Functions
+// have a hard ~150s per-invocation wall-clock limit (measured directly
+// against this project), and a full page rewrite with a 16k-token output
+// budget routinely runs close to or past that on its own. The frontend
+// polls vision_generation_jobs (RLS allows anon SELECT) for the draft, then
+// calls self-check-vision (step 2) to verify + revise it before ever
+// showing it to the user.
 //
-// Never writes to Supabase — saving a version is a separate, explicit
-// frontend action (POST to vision_versions directly via the client).
+// Never writes to vision_versions — saving a version is a separate,
+// explicit frontend action (POST to vision_versions directly via the client).
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ─── CORS ───
 const corsHeaders = {
@@ -27,6 +36,9 @@ function errorResponse(code: string, message: string, status: number): Response 
 // ─── CONFIG ───
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const VISION_SERVICE_URL = Deno.env.get("VISION_SERVICE_URL");
+const supabaseUrl = Deno.env.get("SUPABASE_URL");
+const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const supabase = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
 
 const GENERATE_VISION_SYSTEM_PROMPT =
   "You are a conversion-focused web designer and copywriter. You receive a real website's HTML and a set of instructions. " +
@@ -86,6 +98,36 @@ function looksLikeHtmlDocument(text: string): boolean {
   return head.includes("<html") || head.includes("<!doctype") || head.includes("<body");
 }
 
+// Non-streaming requests with large max_tokens risk hitting HTTP timeouts before
+// the full response is generated server-side; streaming avoids that by returning
+// bytes as they're produced. We only need the concatenated text, not individual events.
+async function readStreamedText(response: Response): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const event = JSON.parse(line.slice(6));
+        if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+          text += event.delta.text;
+        }
+      } catch {
+        // ignore malformed SSE lines
+      }
+    }
+  }
+  return text;
+}
+
 async function generateWithClaude(args: {
   sanitizedHtml: string;
   archetype: string;
@@ -105,7 +147,7 @@ async function generateWithClaude(args: {
   ].join("\n\n");
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 45_000);
+  const timeoutId = setTimeout(() => controller.abort(), 145_000);
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -116,8 +158,14 @@ async function generateWithClaude(args: {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5",
-        max_tokens: 8000,
+        model: "claude-opus-5",
+        max_tokens: 16000,
+        stream: true,
+        // Full-page rewrites are a structure/copy task, not a hard multi-step reasoning
+        // problem — "high" (the default) routinely pushed generation past 120s against
+        // Supabase's ~150s hard per-invocation ceiling. Medium effort trades some depth
+        // for materially lower latency while quality holds for this task shape.
+        output_config: { effort: "medium" },
         system: [{ type: "text", text: GENERATE_VISION_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: userMessage }],
       }),
@@ -127,9 +175,7 @@ async function generateWithClaude(args: {
       console.error("generate-vision: Claude API error", response.status, body.slice(0, 500));
       return { success: false, message: `Claude API returned ${response.status}.` };
     }
-    const data = await response.json();
-    const textBlock = (data.content ?? []).find((b: { type: string }) => b.type === "text");
-    const html = textBlock?.text?.trim() ?? "";
+    const html = (await readStreamedText(response)).trim();
     if (!html || !looksLikeHtmlDocument(html)) {
       console.error("generate-vision: malformed Claude output", html.slice(0, 500));
       return { success: false, message: "Claude did not return a valid HTML document." };
@@ -146,21 +192,17 @@ async function generateWithClaude(args: {
   }
 }
 
-// ─── MAIN HANDLER ───
-Deno.serve(async (req: Request): Promise<Response> => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders, status: 204 });
-  if (req.method !== "POST") return errorResponse("METHOD_NOT_ALLOWED", "Method not allowed", 405);
+// ─── PIPELINE ───
+async function runPipeline(jobId: string, payload: GenerateVisionPayload): Promise<void> {
+  if (!supabase) return;
 
-  let payload: GenerateVisionPayload;
-  try {
-    payload = await req.json();
-  } catch {
-    return errorResponse("INVALID_JSON", "Request body must be JSON", 400);
-  }
+  const fail = async (message: string) => {
+    await supabase.from("vision_generation_jobs").update({ status: "error", error_message: message, completed_at: new Date().toISOString() }).eq("id", jobId);
+  };
 
   const rawHtml = payload.rawHtml;
   if (!rawHtml || typeof rawHtml !== "string") {
-    return errorResponse("MISSING_RAW_HTML", "rawHtml is required — this audit predates raw HTML capture.", 400);
+    return fail("rawHtml is required — this audit predates raw HTML capture.");
   }
 
   const archetype = typeof payload.archetype === "string" ? payload.archetype : "";
@@ -169,7 +211,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const domResult = await processWithMicroservice(rawHtml, sectionOrder);
   if (domResult.success === false) {
-    return errorResponse("MICROSERVICE_UNREACHABLE", domResult.message, 502);
+    return fail(domResult.message);
   }
 
   const claudeResult = await generateWithClaude({
@@ -179,8 +221,45 @@ Deno.serve(async (req: Request): Promise<Response> => {
     copySelections,
   });
   if (claudeResult.success === false) {
-    return errorResponse("GENERATION_FAILED", claudeResult.message, 502);
+    return fail(claudeResult.message);
   }
 
-  return jsonResponse({ html: claudeResult.html }, 200);
+  const { error: updateError } = await supabase
+    .from("vision_generation_jobs")
+    .update({ status: "done", html: claudeResult.html, completed_at: new Date().toISOString() })
+    .eq("id", jobId);
+  if (updateError) console.error("generate-vision: failed to write completed job", updateError.message);
+}
+
+// ─── MAIN HANDLER ───
+Deno.serve(async (req: Request): Promise<Response> => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders, status: 204 });
+  if (req.method !== "POST") return errorResponse("METHOD_NOT_ALLOWED", "Method not allowed", 405);
+  if (!supabase) return errorResponse("NOT_CONFIGURED", "Supabase is not configured for this function.", 500);
+
+  let payload: GenerateVisionPayload;
+  try {
+    payload = await req.json();
+  } catch {
+    return errorResponse("INVALID_JSON", "Request body must be JSON", 400);
+  }
+
+  if (!payload.rawHtml || typeof payload.rawHtml !== "string") {
+    return errorResponse("MISSING_RAW_HTML", "rawHtml is required — this audit predates raw HTML capture.", 400);
+  }
+
+  const auditId = typeof payload.auditId === "string" ? payload.auditId : null;
+  const { data: job, error: insertError } = await supabase
+    .from("vision_generation_jobs")
+    .insert({ audit_id: auditId, status: "pending", stage: "generate" })
+    .select("id")
+    .single();
+  if (insertError || !job?.id) {
+    return errorResponse("JOB_CREATE_FAILED", insertError?.message ?? "Failed to create generation job.", 500);
+  }
+
+  // deno-lint-ignore no-explicit-any
+  (globalThis as any).EdgeRuntime?.waitUntil(runPipeline(job.id, payload));
+
+  return jsonResponse({ jobId: job.id }, 202);
 });

@@ -58,7 +58,7 @@ export default function ArcGauge({ score = 61, animated = true, size = "normal" 
           strokeDasharray={arcLen} strokeDashoffset={arcLen * (1 - frac)}/>
         {dotV && frac > 0 && <circle cx={dot.x} cy={dot.y} r={big ? 6 : 5} fill={sc} filter="url(#glo)"/>}
         <text x={cx} y={cy - (big ? 14 : 10)} textAnchor="middle"
-          style={{ fontSize: big ? 56 : 48, fontWeight: 800, fill: sc, fontFamily: "'Unbounded',sans-serif", letterSpacing: "-2px" }}>
+          style={{ fontSize: big ? 56 : 48, fontWeight: 700, fill: sc, fontFamily: "'Unbounded',sans-serif", letterSpacing: "-2px" }}>
           {num}
         </text>
         <text x={cx} y={cy + (big ? 14 : 12)} textAnchor="middle"

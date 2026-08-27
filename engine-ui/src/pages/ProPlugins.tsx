@@ -3,7 +3,7 @@ import Nav from "../components/Nav";
 import Blobs from "../components/Blobs";
 
 const C = {
-  bg: "#EEF1F5", navy: "#0B1C48", forest: "#186132", emerald: "#148C59",
+  bg: "#F9F9F9", navy: "#0B1C48", forest: "#186132", emerald: "#148C59",
   mint: "#14D571", violet: "#5B61F4", muted: "#6B7280", dim: "#9CA3AF",
 };
 
@@ -88,7 +88,7 @@ function MockPluginPanel() {
       {/* Title bar */}
       <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(91,97,244,0.1)", background: "rgba(91,97,244,0.04)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <div style={{ fontSize: 10, fontWeight: 800, color: C.violet, letterSpacing: "0.04em" }}>UXPACT · Hero Section</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.violet, letterSpacing: "0.04em" }}>UXPACT · Hero Section</div>
           <div style={{ fontSize: 9.5, color: C.dim, marginTop: 1 }}>3 findings apply here</div>
         </div>
         <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.mint, animation: "pulseAnim 2s infinite" }} />
@@ -113,7 +113,7 @@ function MockPluginPanel() {
       <div style={{ padding: "8px 14px", borderTop: "1px solid rgba(0,0,0,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 10, color: C.dim }}>Synced with UXpact report</span>
         <div style={{ width: 16, height: 16, borderRadius: 4, background: "linear-gradient(135deg,#186132,#14D571)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <span style={{ fontSize: 8, fontWeight: 800, color: "#fff" }}>U</span>
+          <span style={{ fontSize: 8, fontWeight: 700, color: "#fff" }}>U</span>
         </div>
       </div>
     </div>
@@ -163,7 +163,7 @@ export default function ProPlugins({ auditId }: { auditId: string }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 }}>
             {STEPS.map((s, i) => (
               <div key={i} style={{ background: "rgba(255,255,255,0.55)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderRadius: 14, border: "1px solid rgba(255,255,255,0.75)", padding: "24px 20px", animation: `fadeUp 0.35s ease ${i * 0.1}s both`, position: "relative", overflow: "hidden" }}>
-                <div style={{ position: "absolute", top: 16, right: 16, fontFamily: "'Unbounded',sans-serif", fontSize: 28, fontWeight: 800, color: `${s.color}18`, letterSpacing: "-1px" }}>{s.n}</div>
+                <div style={{ position: "absolute", top: 16, right: 16, fontFamily: "'Unbounded',sans-serif", fontSize: 28, fontWeight: 700, color: `${s.color}18`, letterSpacing: "-1px" }}>{s.n}</div>
                 <div style={{ fontSize: 22, marginBottom: 12 }}>{s.icon}</div>
                 <div style={{ fontSize: 13.5, fontWeight: 700, color: C.navy, marginBottom: 8, lineHeight: 1.3 }}>{s.title}</div>
                 <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.65 }}>{s.body}</div>
@@ -191,7 +191,7 @@ export default function ProPlugins({ auditId }: { auditId: string }) {
             {INTEGRATIONS.map((t, i) => (
               <div key={i} style={{ background: "rgba(255,255,255,0.55)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderRadius: 12, border: "1px solid rgba(255,255,255,0.75)", padding: "18px 20px", display: "flex", gap: 14, alignItems: "flex-start", animation: `fadeUp 0.35s ease ${i * 0.06}s both` }}>
                 <div style={{ flexShrink: 0, width: 36, height: 36, borderRadius: 9, background: "rgba(11,28,72,0.06)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: C.navy }}>{t.name[0]}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.navy }}>{t.name[0]}</span>
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>

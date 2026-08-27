@@ -7,7 +7,7 @@ import Pill from "./Pill";
 import CompactResults from "./CompactResults";
 import type { AuditData } from "../lib/ui-types";
 
-const C = { bg: "#EEF1F5", forest: "#186132", mint: "#14D571", emerald: "#148C59", navy: "#0B1C48", muted: "#6B7280", dim: "#9CA3AF" };
+const C = { bg: "#F9F9F9", forest: "#186132", mint: "#14D571", emerald: "#148C59", navy: "#0B1C48", muted: "#6B7280", dim: "#9CA3AF" };
 
 const STATUS_MSGS = [
   "Mapping conversion pathways...",

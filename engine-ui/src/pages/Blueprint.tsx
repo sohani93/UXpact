@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { getSupabase } from "../lib/supabase";
 
 const C = {
-  bg: "#EEF1F5",
+  bg: "#F9F9F9",
   navy: "#0B1C48",
   forest: "#186132",
   emerald: "#148C59",
@@ -106,6 +106,8 @@ const embedSnippetFor = (auditId: string) =>
 
 const GENERATE_VISION_ENDPOINT =
   import.meta.env.VITE_GENERATE_VISION_ENDPOINT ?? "https://oxminualycvnxofoevjs.supabase.co/functions/v1/generate-vision";
+const SELF_CHECK_VISION_ENDPOINT =
+  import.meta.env.VITE_SELF_CHECK_VISION_ENDPOINT ?? "https://oxminualycvnxofoevjs.supabase.co/functions/v1/self-check-vision";
 const DEPLOY_VARIANT_ENDPOINT =
   import.meta.env.VITE_DEPLOY_VARIANT_ENDPOINT ?? "https://oxminualycvnxofoevjs.supabase.co/functions/v1/deploy-variant";
 
@@ -238,7 +240,7 @@ function FixDrawer({ finding, findingIndex, onClose, recovered, onRecover }) {
               <ScoreChip pts={pts} visible={recovered} />
             </div>
             <div style={{
-              fontSize: 13, fontWeight: 650, color: C.navy, lineHeight: 1.35,
+              fontSize: 13, fontWeight: 660, color: C.navy, lineHeight: 1.35,
               fontFamily: "'Unbounded', sans-serif", letterSpacing: "-0.2px",
             }}>{finding.title}</div>
           </div>
@@ -340,7 +342,7 @@ const FacLabel = ({ t }) => (
   <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: "0.1em", color: C.dim, textTransform: "uppercase", fontFamily: "'Space Grotesk', sans-serif", marginBottom: 5 }}>{t}</div>
 );
 const FacH2 = ({ children }) => (
-  <div style={{ fontSize: 17, fontWeight: 650, color: C.navy, fontFamily: "'Unbounded', sans-serif", letterSpacing: "-0.3px", marginBottom: 8 }}>{children}</div>
+  <div style={{ fontSize: 17, fontWeight: 660, color: C.navy, fontFamily: "'Unbounded', sans-serif", letterSpacing: "-0.3px", marginBottom: 8 }}>{children}</div>
 );
 
 // ── PIN_POSITIONS — per check_id placement on the page facsimile ─────
@@ -581,21 +583,50 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
   const realPricingTiers: { name: string; price: string }[] = domData?.pricingTiers ?? [];
   const realDomain = auditData?.domain || "yoursite.com";
 
-  const displayFindings = findings
-    .filter((f) => !f.pass && !f.manual_review)
-    .map((f, i) => ({
-      id: i + 1,
-      checkId: f.check_id ?? f.checkId ?? "",
-      zone: normalizeZone(f.dom_zone ?? f.domZone ?? ""),
-      sev: f.severity
-        ? f.severity.charAt(0).toUpperCase() + f.severity.slice(1)
-        : "Minor",
-      title: f.name ?? "Untitled finding",
-      fix: `${f.finding ?? ""}
+  // Current view pins mark journey breaks — the AI diagnosis's actual verdict on where
+  // the visitor's journey fails — not every failing rule-based check. Each pin borrows
+  // its fix + ready-to-use AI prompt from the best-matching 50-check finding in the same
+  // zone (richer, pre-written copy), falling back to a prompt built from the journey
+  // break's own reasoning when no rule-based finding lines up.
+  const sevRank: Record<string, number> = { critical: 3, major: 2, minor: 1 };
+  const journeyBreakFindings = journeyBreaks.map((jb, i) => {
+    const zone = zoneForJourneyBreak(jb);
+    const zoneMatches = findings
+      .filter((f) => !f.pass && !f.manual_review && normalizeZone(f.dom_zone ?? f.domZone ?? "") === zone)
+      .sort((a, b) => (sevRank[b.severity] ?? 0) - (sevRank[a.severity] ?? 0));
+    const match = zoneMatches[0] ?? null;
+    const sevLabel = jb.conflictSeverity >= 4 ? "Critical" : jb.conflictSeverity >= 2 ? "Major" : "Minor";
+    return {
+      id: `jb-${i}`,
+      checkId: match?.check_id ?? match?.checkId ?? jb.journeyStage ?? "",
+      zone,
+      sev: match?.severity ? match.severity.charAt(0).toUpperCase() + match.severity.slice(1) : sevLabel,
+      title: jb.element || match?.name || "Journey break",
+      fix: `${jb.reason ?? ""}${match ? `\n\n**Recommended fix:** ${match.fix ?? ""}` : ""}`,
+      prompt: match?.ai_prompt ?? match?.aiPrompt ??
+        `Fix the following issue on ${realDomain}.\n\nFinding: ${jb.reason ?? ""}\n\nImplement this fix, maintaining the existing design language and tone of the site.`,
+    };
+  });
+
+  // If the AI journey diagnosis isn't available for this audit (diagnosisError),
+  // fall back to the rule-based findings so the Current view still has pins.
+  const displayFindings = journeyBreakFindings.length > 0
+    ? journeyBreakFindings
+    : findings
+        .filter((f) => !f.pass && !f.manual_review)
+        .map((f, i) => ({
+          id: i + 1,
+          checkId: f.check_id ?? f.checkId ?? "",
+          zone: normalizeZone(f.dom_zone ?? f.domZone ?? ""),
+          sev: f.severity
+            ? f.severity.charAt(0).toUpperCase() + f.severity.slice(1)
+            : "Minor",
+          title: f.name ?? "Untitled finding",
+          fix: `${f.finding ?? ""}
 
 **Recommended fix:** ${f.fix ?? ""}`,
-      prompt: f.ai_prompt ?? f.aiPrompt ?? "",
-    }));
+          prompt: f.ai_prompt ?? f.aiPrompt ?? "",
+        }));
 
   const activeFindings = displayFindings;
 
@@ -639,25 +670,78 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
     }
   };
 
+  // Generation and self-check-and-revise are each their own multi-step AI call
+  // and, chained together, routinely run longer than a single HTTP request
+  // should stay open — Supabase Edge Functions have a hard ~150s per-invocation
+  // limit. So each step is its own edge function that returns a jobId
+  // immediately and does the real work in the background; this polls
+  // vision_generation_jobs (readable by anon via RLS) until a given job is done.
+  const pollGenerationJob = async (jobId: string): Promise<{ html: string } | { error: string }> => {
+    const supabase = getSupabase();
+    const start = Date.now();
+    const MAX_WAIT_MS = 5 * 60 * 1000;
+    while (Date.now() - start < MAX_WAIT_MS) {
+      const { data: job, error } = await supabase
+        .from("vision_generation_jobs")
+        .select("status, html, error_message")
+        .eq("id", jobId)
+        .single();
+      if (error) return { error: error.message || "Lost track of the generation job. Try again." };
+      if (job.status === "done") return { html: job.html };
+      if (job.status === "error") return { error: job.error_message || "Generation failed. Try again." };
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+    return { error: "This step is taking longer than expected. Try again in a moment." };
+  };
+
   const handleGenerate = async () => {
     if (!auditData?.raw_html) return;
     setGenerating(true);
     setGenError(null);
     startStagedSteps();
     try {
-      const response = await fetch(GENERATE_VISION_ENDPOINT, {
+      // Step 1: generate the draft rebuild.
+      const genResponse = await fetch(GENERATE_VISION_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ auditId, archetype, sectionOrder, copySelections, rawHtml: auditData.raw_html }),
       });
-      const json = await response.json();
-      if (!response.ok || json.error) {
-        setGenError(json.message || "Generation failed. Try again.");
+      const genJson = await genResponse.json();
+      if (!genResponse.ok || genJson.error || !genJson.jobId) {
+        setGenError(genJson.message || "Generation failed. Try again.");
         setGeneratedHtml(null);
-      } else {
-        setGeneratedHtml(json.html);
-        setActiveVersionId(null);
+        return;
       }
+      const draftResult = await pollGenerationJob(genJson.jobId);
+      if ("error" in draftResult) {
+        setGenError(draftResult.error);
+        setGeneratedHtml(null);
+        return;
+      }
+
+      // Step 2: self-check the draft against this audit's real journey breaks
+      // and revise if needed — never show the raw first pass to the user.
+      const checkResponse = await fetch(SELF_CHECK_VISION_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auditId, draftHtml: draftResult.html }),
+      });
+      const checkJson = await checkResponse.json();
+      if (!checkResponse.ok || checkJson.error || !checkJson.jobId) {
+        // Self-check failed to even start — show the unchecked draft rather than nothing.
+        setGeneratedHtml(draftResult.html);
+        setActiveVersionId(null);
+        return;
+      }
+      const finalResult = await pollGenerationJob(checkJson.jobId);
+      if ("error" in finalResult) {
+        // Self-check itself failed — the draft is still a real, generated rebuild.
+        setGeneratedHtml(draftResult.html);
+        setActiveVersionId(null);
+        return;
+      }
+      setGeneratedHtml(finalResult.html);
+      setActiveVersionId(null);
     } catch (err) {
       setGenError(err instanceof Error ? err.message : "Couldn't reach the Vision service.");
       setGeneratedHtml(null);
@@ -948,7 +1032,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
                       ]
                   ).map((c, i) => (
                     <div key={i} style={{ background: "rgba(255,255,255,0.55)", border: `1px solid ${C.border}`, borderRadius: 9, padding: "13px 14px" }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 650, color: C.navy, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 4 }}>{c.t}</div>
+                      <div style={{ fontSize: 12.5, fontWeight: 660, color: C.navy, fontFamily: "'Space Grotesk', sans-serif", marginBottom: 4 }}>{c.t}</div>
                       {c.b && <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6, fontFamily: "'Space Grotesk', sans-serif" }}>{c.b}</div>}
                     </div>
                   ))}
@@ -1178,7 +1262,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
                 {sectionOrder.map((zone) => (
                   <div key={zone}>
-                    <div style={{ fontSize: 11, fontWeight: 650, color: C.navy, marginBottom: 4 }}>{ZONE_LABELS[zone] ?? zone}</div>
+                    <div style={{ fontSize: 11, fontWeight: 660, color: C.navy, marginBottom: 4 }}>{ZONE_LABELS[zone] ?? zone}</div>
                     <textarea
                       value={copySelections[zone] ?? ""}
                       onChange={(e) => setCopySelections((c) => ({ ...c, [zone]: e.target.value }))}
@@ -1290,7 +1374,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
                         const weightPct = Math.round((v.traffic_weight ?? (1 / activeVariants.length)) * 100);
                         return (
                           <div key={v.id} style={{ fontSize: 11.5, color: "#374151", fontFamily: "'Space Grotesk',sans-serif" }}>
-                            <span style={{ fontWeight: 650 }}>Variant {i + 1}</span> — {weightPct}% traffic · {counts.serves} served · {counts.converts} converted
+                            <span style={{ fontWeight: 660 }}>Variant {i + 1}</span> — {weightPct}% traffic · {counts.serves} served · {counts.converts} converted
                           </div>
                         );
                       })}
@@ -1305,7 +1389,7 @@ export default function ConversionBlueprint({ auditId }: { auditId: string }) {
                     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                       {driftEvents.slice(0, 5).map((ev) => (
                         <div key={ev.id} style={{ fontSize: 11.5, color: "#374151", fontFamily: "'Space Grotesk',sans-serif" }}>
-                          <span style={{ fontWeight: 650 }}>{ev.element || "A section"}</span> got worse (+{ev.severity_delta} severity) on{" "}
+                          <span style={{ fontWeight: 660 }}>{ev.element || "A section"}</span> got worse (+{ev.severity_delta} severity) on{" "}
                           {new Date(ev.detected_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                         </div>
                       ))}

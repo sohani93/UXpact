@@ -1539,7 +1539,7 @@ const JOURNEY_DIAGNOSIS_SCHEMA = {
           journey_stage: { type: "string", enum: JOURNEY_STAGES },
           element: { type: "string" },
           current_archetype_signal: { type: "string" },
-          conflict_severity: { type: "integer", minimum: 1, maximum: 5 },
+          conflict_severity: { type: "integer", description: "Severity from 1 (minor) to 5 (critical)." },
           reason: { type: "string" },
         },
         required: ["journey_stage", "element", "current_archetype_signal", "conflict_severity", "reason"],
@@ -1568,7 +1568,10 @@ async function diagnoseJourney(args: {
   scores: AuditScores;
   topFindings: CheckResult[];
 }): Promise<JourneyDiagnosis | null> {
-  if (!ANTHROPIC_API_KEY) return null;
+  if (!ANTHROPIC_API_KEY) {
+    console.error("diagnoseJourney: ANTHROPIC_API_KEY is not set — skipping AI diagnosis.");
+    return null;
+  }
 
   const { metadata, industry, goal, archetype, scores, topFindings } = args;
   const revenueLeak = scores.total < 40 ? "£2,800/mo" : scores.total < 60 ? "£1,100/mo" : "£480/mo";
@@ -1587,7 +1590,7 @@ async function diagnoseJourney(args: {
   };
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8_000);
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -1605,13 +1608,21 @@ async function diagnoseJourney(args: {
         messages: [{ role: "user", content: JSON.stringify(userPayload) }],
       }),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      console.error(`diagnoseJourney: Claude API returned ${response.status}: ${body.slice(0, 1000)}`);
+      return null;
+    }
     const data = await response.json();
     const textBlock = (data.content ?? []).find((b: { type: string }) => b.type === "text");
-    if (!textBlock?.text) return null;
+    if (!textBlock?.text) {
+      console.error("diagnoseJourney: no text block in Claude response", JSON.stringify(data).slice(0, 1000));
+      return null;
+    }
     const parsed = JSON.parse(textBlock.text) as { narrative_verdict: string; journey_breaks: unknown };
     return { narrative_verdict: parsed.narrative_verdict, journey_breaks: sanitizeJourneyBreaks(parsed.journey_breaks) };
-  } catch {
+  } catch (error) {
+    console.error("diagnoseJourney: request failed", error instanceof Error ? error.message : error);
     return null;
   } finally {
     clearTimeout(timeoutId);
@@ -1719,6 +1730,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     };
 
     const diagnosis = await diagnoseJourney({ metadata, industry, goal, archetype, scores, topFindings: getTopFindings(findings, 10) });
+    if (!diagnosis) {
+      console.error(`run-audit: journey diagnosis failed for ${targetUrl.toString()} — see diagnoseJourney logs above for the specific cause.`);
+    }
 
     const auditId = await saveAuditResults(targetUrl.toString(), metadata.domain, industry, scores, findings, domData, goal, archetype, diagnosis, html);
 
@@ -1734,6 +1748,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         conflictSeverity: b.conflict_severity,
         reason: b.reason,
       })) ?? null,
+      diagnosisError: diagnosis ? null : "AI journey diagnosis failed — see server logs. The 50-check findings below are unaffected, but no narrative verdict or revenue estimate is available for this run.",
     }, 200);
   } catch (error) {
     return jsonResponse({ error: error instanceof Error ? error.message : "Unexpected error" }, 500);
