@@ -74,6 +74,36 @@ function hasAny(text: string, patterns: string[]): boolean {
   return patterns.some((p) => text.includes(p));
 }
 
+// Non-streaming requests risk stalling past a safe client-side timeout before
+// the full response is generated server-side; streaming avoids that by
+// returning bytes as they're produced.
+async function readStreamedText(response: Response): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const event = JSON.parse(line.slice(6));
+        if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+          text += event.delta.text;
+        }
+      } catch {
+        // ignore malformed SSE lines
+      }
+    }
+  }
+  return text;
+}
+
 async function fetchHtml(url: string): Promise<{ success: true; html: string } | { success: false; error: string }> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10_000);
@@ -285,7 +315,7 @@ async function diagnoseJourney(args: {
   };
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 45_000);
+  const timeoutId = setTimeout(() => controller.abort(), 120_000);
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -294,6 +324,7 @@ async function diagnoseJourney(args: {
       body: JSON.stringify({
         model: "claude-opus-5",
         max_tokens: 4000,
+        stream: true,
         output_config: { effort: "medium", format: { type: "json_schema", schema: JOURNEY_DIAGNOSIS_SCHEMA } },
         system: [{ type: "text", text: JOURNEY_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: JSON.stringify(userPayload) }],
@@ -304,13 +335,12 @@ async function diagnoseJourney(args: {
       console.error(`diagnoseJourney: Claude API returned ${response.status}: ${body.slice(0, 1000)}`);
       return null;
     }
-    const data = await response.json();
-    const textBlock = (data.content ?? []).find((b: { type: string }) => b.type === "text");
-    if (!textBlock?.text) {
-      console.error("diagnoseJourney: no text block in Claude response", JSON.stringify(data).slice(0, 1000));
+    const text = await readStreamedText(response);
+    if (!text) {
+      console.error("diagnoseJourney: no text content in streamed Claude response");
       return null;
     }
-    const parsed = JSON.parse(textBlock.text) as JourneyDiagnosis;
+    const parsed = JSON.parse(text) as JourneyDiagnosis;
     if (!Array.isArray(parsed.journey_breaks)) return null;
     return parsed;
   } catch (error) {
