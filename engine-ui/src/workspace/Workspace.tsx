@@ -101,7 +101,7 @@ export default function Workspace({ auditId }: { auditId: string }) {
       </div>
 
       <div style={{ textAlign: "center", padding: "0 0 40px" }}>
-        <p style={{ fontFamily: font.body, fontSize: 11, color: color.dim, margin: 0 }}>{diagnosis.domain} · Audit #{diagnosis.auditId} · UXpact</p>
+        <p style={{ fontFamily: font.body, fontSize: 11, color: color.dim, margin: 0 }}>{diagnosis.domain} · read by UXpact</p>
       </div>
     </div>
   );

@@ -246,7 +246,7 @@ export default function BlueprintSection({ diagnosis }: { diagnosis: Diagnosis }
   useEffect(() => { void refreshVariants(); }, [diagnosis.auditId]);
 
   const handleGenerate = async () => {
-    if (!diagnosis.rawHtml) { setGenError("This audit predates raw HTML capture — regenerate from a fresh audit."); return; }
+    if (!diagnosis.rawHtml) { setGenError("This read predates raw HTML capture — run a fresh read of the site to continue."); return; }
     setGenerating(true);
     setGenError(null);
     const steps = ["Parsing your site's real structure…", "Reordering sections…", "Rewriting copy for the story…", "Checking the rebuild against your diagnosis…"];

@@ -31,7 +31,7 @@ export default function DiagnosisSection({ diagnosis }: { diagnosis: Diagnosis }
           ) : (
             <div style={{ borderRadius: radius.lg, padding: "22px 26px", background: "rgba(179,38,30,0.06)", border: "1px solid rgba(179,38,30,0.15)" }}>
               <p style={{ fontFamily: font.body, fontSize: 13.5, color: "#8a1f19", margin: 0, lineHeight: 1.6 }}>
-                {diagnosis.diagnosisError ?? "The AI diagnosis didn't complete for this run — no narrative verdict, journey breakdown, or revenue estimate is available. Re-run the audit to try again."}
+                {diagnosis.diagnosisError ?? "The AI didn't finish reading this site's story this run — no narrative verdict, journey breakdown, or revenue estimate is available. Read the site again to try again."}
               </p>
             </div>
           )}

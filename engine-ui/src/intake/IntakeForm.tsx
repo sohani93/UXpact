@@ -43,12 +43,12 @@ export default function IntakeForm({ onSubmit, initial }: { onSubmit: (form: Int
           </div>
 
           <h1 style={{ fontFamily: font.display, fontSize: 34, fontWeight: 700, color: color.navy, textAlign: "center", letterSpacing: "-0.6px", margin: "0 0 10px", lineHeight: 1.15 }}>
-            What's your site{" "}
-            <span style={{ background: gradient.text, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>actually doing</span>
-            {" "}to visitors?
+            What {" "}
+            <span style={{ background: gradient.text, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>story</span>
+            {" "}is your site telling?
           </h1>
           <p style={{ fontFamily: font.body, fontSize: 15, color: color.muted, textAlign: "center", margin: "0 0 32px" }}>
-            Drop a URL. We'll read it the way a real visitor does and tell you the story.
+            Drop a URL. UXpact reads it the way a real visitor does, and tells you the story it's telling right now — and where that story breaks down.
           </p>
 
           <div style={{ ...glass, borderRadius: radius.xl, padding: 28 }}>
@@ -108,7 +108,7 @@ export default function IntakeForm({ onSubmit, initial }: { onSubmit: (form: Int
               onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.transform = "none"; }}
             >
-              Diagnose my site
+              Read my site's story
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M5 12h14m-7-7l7 7-7 7" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
             {touched && !isValid && <p style={{ color: color.danger, fontSize: 12, textAlign: "center", marginTop: 10, fontFamily: font.body }}>Enter a real site URL to continue.</p>}

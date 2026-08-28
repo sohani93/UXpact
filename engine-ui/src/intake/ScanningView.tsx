@@ -11,24 +11,48 @@ const STATUS_MESSAGES = [
   "Estimating what this is costing you…",
 ];
 
-function ScanLine() {
+// The visitor's path through a page is a connected system, not a checklist —
+// this reads as UXpact tracing that system rather than scanning line by line.
+const NODES: [number, number][] = [
+  [26, 132], [64, 54], [104, 176], [140, 34], [166, 128],
+  [204, 78], [222, 190], [252, 46], [76, 222], [188, 224],
+];
+const EDGES: [number, number][] = [
+  [0, 1], [0, 2], [1, 3], [1, 4], [2, 4], [2, 8], [3, 5], [4, 5],
+  [4, 6], [5, 7], [5, 6], [6, 9], [8, 9], [4, 9], [3, 7],
+];
+const SIGNAL_EDGES = [1, 4, 8, 11];
+const NODE_COLORS = ["#14D571", "#5B61F4", "#186132", "#0B1C48"];
+
+function NodeWeb() {
   return (
-    <div style={{ position: "relative", width: 280, borderRadius: radius.lg, overflow: "hidden", border: "1px solid rgba(11,28,72,0.08)", background: "#fff" }}>
+    <div style={{ width: 280, height: 250, borderRadius: radius.lg, border: "1px solid rgba(11,28,72,0.08)", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <style>{`
-        @keyframes sweep { 0% { transform: translateY(-100%); } 100% { transform: translateY(340px); } }
-        @keyframes blockPulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.7; } }
+        @keyframes nodePulse { 0%, 100% { opacity: 0.55; transform: scale(1); } 50% { opacity: 1; transform: scale(1.4); } }
+        @keyframes travelSignal { to { stroke-dashoffset: -420; } }
       `}</style>
-      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ height: 8, width: "40%", borderRadius: 4, background: "rgba(11,28,72,0.12)", animation: "blockPulse 2.2s ease-in-out infinite" }} />
-        <div style={{ height: 22, width: "80%", borderRadius: 4, background: "rgba(11,28,72,0.15)", animation: "blockPulse 2.2s ease-in-out 0.1s infinite" }} />
-        <div style={{ height: 22, width: "60%", borderRadius: 4, background: "rgba(11,28,72,0.15)", animation: "blockPulse 2.2s ease-in-out 0.15s infinite" }} />
-        <div style={{ height: 30, marginTop: 6 }} />
-        <div style={{ display: "flex", gap: 8 }}>
-          {[1, 2, 3].map((i) => <div key={i} style={{ flex: 1, height: 46, borderRadius: 6, background: "rgba(11,28,72,0.08)", animation: `blockPulse 2.2s ease-in-out ${i * 0.12}s infinite` }} />)}
-        </div>
-        <div style={{ height: 36, width: "100%", borderRadius: 8, background: "rgba(20,213,113,0.18)", marginTop: 10, animation: "blockPulse 2.2s ease-in-out 0.3s infinite" }} />
-      </div>
-      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 60, background: "linear-gradient(180deg, rgba(20,213,113,0.35), transparent)", animation: "sweep 2.6s linear infinite" }} />
+      <svg viewBox="0 0 280 250" width={252} height={225}>
+        {EDGES.map(([a, b], i) => (
+          <line key={i} x1={NODES[a][0]} y1={NODES[a][1]} x2={NODES[b][0]} y2={NODES[b][1]} stroke="rgba(11,28,72,0.12)" strokeWidth={1} />
+        ))}
+        {SIGNAL_EDGES.map((ei, i) => {
+          const [a, b] = EDGES[ei];
+          return (
+            <line
+              key={`signal-${ei}`}
+              x1={NODES[a][0]} y1={NODES[a][1]} x2={NODES[b][0]} y2={NODES[b][1]}
+              stroke="#14D571" strokeWidth={2} strokeLinecap="round" strokeDasharray="8 60"
+              style={{ animation: "travelSignal 2.4s linear infinite", animationDelay: `${i * 0.45}s` }}
+            />
+          );
+        })}
+        {NODES.map(([x, y], i) => (
+          <circle
+            key={i} cx={x} cy={y} r={i % 3 === 0 ? 5 : 3.5} fill={NODE_COLORS[i % NODE_COLORS.length]}
+            style={{ transformOrigin: `${x}px ${y}px`, animation: "nodePulse 2.2s ease-in-out infinite", animationDelay: `${i * 0.16}s` }}
+          />
+        ))}
+      </svg>
     </div>
   );
 }
@@ -60,7 +84,7 @@ export default function ScanningView({ url, diagnosis, onEnter }: { url: string;
 
         {!showResult ? (
           <>
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}><ScanLine /></div>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}><NodeWeb /></div>
             <p style={{ fontFamily: font.body, fontSize: 13.5, color: color.muted, minHeight: 20, transition: "opacity 0.3s" }}>{STATUS_MESSAGES[msgIndex]}</p>
           </>
         ) : (
