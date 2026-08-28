@@ -98,6 +98,14 @@ function looksLikeHtmlDocument(text: string): boolean {
   return head.includes("<html") || head.includes("<!doctype") || head.includes("<body");
 }
 
+// A document that starts like HTML but runs out of max_tokens mid-generation
+// still passes looksLikeHtmlDocument — checking only the closing tag catches
+// that silent truncation instead of saving a broken document as if it succeeded.
+function looksComplete(text: string): boolean {
+  const tail = text.trim().slice(-30).toLowerCase();
+  return tail.includes("</html>");
+}
+
 // Non-streaming requests with large max_tokens risk hitting HTTP timeouts before
 // the full response is generated server-side; streaming avoids that by returning
 // bytes as they're produced. We only need the concatenated text, not individual events.
@@ -147,7 +155,7 @@ async function generateWithClaude(args: {
   ].join("\n\n");
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 145_000);
+  const timeoutId = setTimeout(() => controller.abort(), 130_000);
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -163,9 +171,10 @@ async function generateWithClaude(args: {
         stream: true,
         // Full-page rewrites are a structure/copy task, not a hard multi-step reasoning
         // problem — "high" (the default) routinely pushed generation past 120s against
-        // Supabase's ~150s hard per-invocation ceiling. Medium effort trades some depth
-        // for materially lower latency while quality holds for this task shape.
-        output_config: { effort: "medium" },
+        // Supabase's ~150s hard per-invocation ceiling. "Medium" still timed out on a
+        // large real page (measured: 240KB raw HTML, 146s). "Low" trades more depth for
+        // the latency margin a real full-page round trip needs under this ceiling.
+        output_config: { effort: "low" },
         system: [{ type: "text", text: GENERATE_VISION_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: userMessage }],
       }),
@@ -173,12 +182,16 @@ async function generateWithClaude(args: {
     if (!response.ok) {
       const body = await response.text().catch(() => "");
       console.error("generate-vision: Claude API error", response.status, body.slice(0, 500));
-      return { success: false, message: `Claude API returned ${response.status}.` };
+      return { success: false, message: `Claude API returned ${response.status}: ${body.slice(0, 300)}` };
     }
     const html = (await readStreamedText(response)).trim();
     if (!html || !looksLikeHtmlDocument(html)) {
       console.error("generate-vision: malformed Claude output", html.slice(0, 500));
       return { success: false, message: "Claude did not return a valid HTML document." };
+    }
+    if (!looksComplete(html)) {
+      console.error("generate-vision: output truncated before completion (hit max_tokens)", html.length, html.slice(-200));
+      return { success: false, message: "Generation ran out of output budget before finishing the page — the result would have been a broken, cut-off document, so nothing was saved." };
     }
     return { success: true, html };
   } catch (error) {
@@ -212,6 +225,22 @@ async function runPipeline(jobId: string, payload: GenerateVisionPayload): Promi
   const domResult = await processWithMicroservice(rawHtml, sectionOrder);
   if (domResult.success === false) {
     return fail(domResult.message);
+  }
+
+  // A full-page rewrite asks Claude to reproduce the whole document back out, so
+  // output size scales with input size. Measured directly against this project:
+  // a 240KB real page timed out at effort:medium; a 60KB real page still timed out
+  // at effort:low. Output token throughput, not reasoning effort, is the real
+  // constraint here — a 60KB reproduction plus edits didn't finish emitting inside
+  // Supabase's ~150s per-invocation ceiling. Cut off well below that measured
+  // failure point, and fail fast with a specific reason rather than burning the
+  // full budget on a page that structurally can't finish.
+  const MAX_CLEANED_HTML_BYTES = 35_000;
+  if (domResult.html.length > MAX_CLEANED_HTML_BYTES) {
+    return fail(
+      `This page is too large for a full-page rebuild in one pass (${Math.round(domResult.html.length / 1000)}KB after cleanup, limit ${MAX_CLEANED_HTML_BYTES / 1000}KB). ` +
+      "Generating a complete rewritten document requires Claude to reproduce roughly as much output as it reads in, and a page this size can't finish within Supabase's per-invocation time limit.",
+    );
   }
 
   const claudeResult = await generateWithClaude({
