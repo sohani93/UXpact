@@ -1,73 +1,61 @@
-export type Industry =
-  | "saas"
-  | "ecommerce"
-  | "portfolio"
-  | "healthcare"
-  | "fintech"
-  | "service";
+export type Archetype = "Hero" | "Sage" | "Outlaw" | "Caregiver" | "Creator" | "Ruler";
+export type JourneyStage = "arrival" | "understanding" | "trust-building" | "decision" | "action";
+export const JOURNEY_STAGE_ORDER: JourneyStage[] = ["arrival", "understanding", "trust-building", "decision", "action"];
+export const JOURNEY_STAGE_LABEL: Record<JourneyStage, string> = {
+  arrival: "Arrival",
+  understanding: "Understanding",
+  "trust-building": "Trust-building",
+  decision: "Decision",
+  action: "Action",
+};
 
-export interface AuditRequest {
+export type IntakeFormData = {
+  name: string;
+  email: string;
   url: string;
-  industry: Industry;
-}
+  industry: string;
+  goal: string;
+  challenge: string;
+  focusAreas: string[];
+};
 
-export interface PageMetadata {
+// A journey break is a real place in the visitor's journey where the AI
+// diagnosis found a break — never a rule-based finding, never scored.
+export type JourneyBreak = {
+  journeyStage: JourneyStage;
+  element: string;
+  whatsHappening: string;
+  whatShouldHappen: string;
+  reason: string;
+  fix: string;
+  aiPrompt: string;
+};
+
+export type PageContent = {
+  h1Text: string;
+  navLinks: string[];
+  h2Texts: string[];
+  ctaTexts: string[];
+  paragraphTexts: string[];
+  testimonialTexts: string[];
+  trustLogoLabels: string[];
+  pricingTiers: { name: string; price: string }[];
+  imagesCount: number;
+  hasForm: boolean;
+  metaTitle: string;
+};
+
+export type Diagnosis = {
+  auditId: string;
   url: string;
   domain: string;
-  statusCode: number;
-  title: string | null;
-  titleLength: number;
-  metaDescription: string | null;
-  metaDescriptionLength: number;
-  canonical: string | null;
-  h1s: { text: string; count: number }[];
-  h1Count: number;
-  headingHierarchy: { tag: string; text: string; level: number }[];
-  hasSkippedHeadingLevels: boolean;
-  navLinks: { text: string; href: string }[];
-  navLinkCount: number;
-  logoLinksHome: boolean;
-  ctas: { text: string; tag: string; classes: string }[];
-  ctaCount: number;
-  images: { src: string; alt: string | null; hasAlt: boolean }[];
-  imageCount: number;
-  imagesWithoutAlt: number;
-  ogTags: Record<string, string>;
-  hasOgImage: boolean;
-  hasOgTitle: boolean;
-  hasOgDescription: boolean;
-  twitterCard: string | null;
-  hasFavicon: boolean;
-  hasViewportMeta: boolean;
-  charset: string | null;
-  jsonLdBlocks: string[];
-  scriptCount: number;
-  stylesheetCount: number;
-  bodyTextContent: string;
-  bodyWordCount: number;
-  paragraphs: string[];
-  allLinks: { text: string; href: string; isExternal: boolean }[];
-  internalLinkCount: number;
-  externalLinkCount: number;
-  formCount: number;
-  buttonTexts: string[];
-  inputFields: { type: string; name: string | null; placeholder: string | null }[];
-  headers: Record<string, string>;
-  hasHttps: boolean;
-  youCount: number;
-  weCount: number;
-  youWeRatio: number;
-}
-
-export interface CheckResult {
-  id: string;
-  name: string;
-  pass: boolean;
-  score: number;
-  severity: "critical" | "major" | "minor";
-  finding: string;
-  fix: string;
-  category: string;
-  part: "A" | "B" | "C";
-  manualReview: boolean;
-}
+  createdAt: string;
+  domData: PageContent;
+  currentArchetype: Archetype | null;
+  targetArchetype: Archetype | null;
+  narrativeVerdict: string | null;
+  revenueLeakEstimate: string | null;
+  journeyBreaks: JourneyBreak[] | null;
+  diagnosisError: string | null;
+  rawHtml?: string | null;
+};
