@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
 import EngineInput from "./components/EngineInput";
 import LoadingState from "./components/LoadingState";
-import FullReport from "./pages/FullReport";
-import ConversionBlueprint from "./pages/Blueprint";
-import ProReaudit from "./pages/ProReaudit";
-import ProPlugins from "./pages/ProPlugins";
-import type { AuditData, AuditRequestFormData, Finding } from "./lib/ui-types";
+import Workspace from "./pages/Workspace";
+import type { AuditData, AuditRequestFormData } from "./lib/ui-types";
 
 type AuditMode = "input" | "loading";
 
 function getPath() { return window.location.pathname; }
+
+function navigateTo(path: string) {
+  window.history.pushState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
 
 function App() {
   const [path, setPath] = useState(getPath());
@@ -19,16 +21,14 @@ function App() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  if (path.startsWith("/report/"))    return <FullReport auditId={path.split("/")[2]} />;
-  if (path.startsWith("/blueprint/")) return <ConversionBlueprint auditId={path.split("/")[2]} />;
-  if (path.startsWith("/reaudit/"))   return <ProReaudit auditId={path.split("/")[2]} />;
-  if (path.startsWith("/plugins/"))   return <ProPlugins auditId={path.split("/")[2]} />;
-  // Vision retired as a standalone page — its sandbox now lives inside Blueprint's
-  // Restructured toggle. Redirect old links rather than 404.
-  if (path.startsWith("/vision/")) {
-    const auditId = path.split("/")[2];
-    window.history.replaceState({}, "", `/blueprint/${auditId}`);
-    return <ConversionBlueprint auditId={auditId} />;
+  // One continuous workspace per site — Diagnosis, Conversion Blueprint, and
+  // UX Pulse all live as sections of the same page, not separate routes.
+  // Old links (/report/:id, /blueprint/:id, /vision/:id) redirect here rather than 404.
+  const workspaceMatch = path.match(/^\/(?:workspace|report|blueprint|reaudit|plugins|vision)\/(.+)$/);
+  if (workspaceMatch) {
+    const auditId = workspaceMatch[1];
+    if (!path.startsWith("/workspace/")) window.history.replaceState({}, "", `/workspace/${auditId}`);
+    return <Workspace auditId={auditId} />;
   }
   return <AuditPage />;
 }
@@ -51,10 +51,20 @@ function AuditPage() {
       const endpoint = import.meta.env.VITE_AUDIT_ENDPOINT ?? "https://oxminualycvnxofoevjs.supabase.co/functions/v1/run-audit";
       const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(normalisedFormData) });
       const json = await response.json();
-      if (!response.ok || json.error) { setMode("input"); return; }
-      const findings: Finding[] = (json.findings ?? []).map((f: any) => ({ id: f.id, name: f.name, severity: f.severity, finding: f.finding, fix: f.fix, aiPrompt: f.aiPrompt, pass: Boolean(f.pass), glossaryTerms: f.glossaryTerms ?? [], domZone: f.domZone ?? "body-copy" }));
-      const topFindings: Finding[] = (json.topFindings ?? []).map((f: any) => ({ id: f.id, name: f.name, severity: f.severity, finding: f.finding, fix: f.fix, aiPrompt: f.aiPrompt, pass: Boolean(f.pass), glossaryTerms: f.glossaryTerms ?? [], domZone: f.domZone ?? "body-copy" }));
-      const auditData: AuditData = { auditId: json.auditId, url: normalisedUrl, domain: parsedUrl.hostname, score: Number(json.scores?.total ?? 0), criticalIssues: Number(json.scores?.criticalIssues ?? 0), createdAt: new Date().toISOString(), findings, topFindings, domData: json.domData ?? { navLinks: [], h1Text: parsedUrl.hostname, h2Texts: [], h3Texts: [], ctaTexts: [], paragraphTexts: [], imagesCount: 0, hasForm: false }, currentArchetype: json.currentArchetype ?? null, targetArchetype: json.targetArchetype ?? null, narrativeVerdict: json.narrativeVerdict ?? null, journeyBreaks: json.journeyBreaks ?? null, storyFixes: json.storyFixes ?? null, visionRewrite: json.visionRewrite ?? null };
+      if (!response.ok || json.error || !json.auditId) { setMode("input"); return; }
+      const auditData: AuditData = {
+        auditId: json.auditId,
+        url: normalisedUrl,
+        domain: parsedUrl.hostname,
+        createdAt: new Date().toISOString(),
+        domData: json.domData ?? { navLinks: [], h1Text: parsedUrl.hostname, h2Texts: [], ctaTexts: [], paragraphTexts: [], testimonialTexts: [], trustLogoLabels: [], pricingTiers: [], imagesCount: 0, hasForm: false, metaTitle: "" },
+        currentArchetype: json.currentArchetype ?? null,
+        targetArchetype: json.targetArchetype ?? null,
+        narrativeVerdict: json.narrativeVerdict ?? null,
+        revenueLeakEstimate: json.revenueLeakEstimate ?? null,
+        journeyBreaks: json.journeyBreaks ?? null,
+        diagnosisError: json.diagnosisError ?? null,
+      };
       sessionStorage.setItem(`audit:${auditData.auditId}`, JSON.stringify(auditData));
       setPendingData(auditData);
     } catch { setMode("input"); }
@@ -62,9 +72,7 @@ function AuditPage() {
 
   const handleAccess = () => {
     if (!pendingData) return;
-    const p = `/report/${pendingData.auditId}`;
-    window.history.pushState({}, "", p);
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    navigateTo(`/workspace/${pendingData.auditId}`);
   };
 
   return (

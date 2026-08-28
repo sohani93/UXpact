@@ -1,12 +1,12 @@
 :root {
   font-family: 'Space Grotesk', sans-serif;
   color: #0b1c48;
-  background: #eef1f5;
+  background: #f9f9f9;
 }
 
 body { margin: 0; }
 h1,h2,h3,strong,button { font-family: 'Unbounded', sans-serif; }
-.shell { min-height: 100vh; padding: 28px; background: #eef1f5; }
+.shell { min-height: 100vh; padding: 28px; background: #f9f9f9; }
 .glass { background: rgba(255,255,255,0.6); backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,0.7); box-shadow: 0 8px 32px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.7); border-radius: 16px; }
 .panel { max-width: 1060px; margin: 0 auto; padding: 24px; }
 .grid-two { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; }
@@ -27,7 +27,7 @@ input,textarea,select { width: 100%; border-radius: 10px; border: 1px solid #d1d
 .tile{background:white;border-radius:12px;padding:12px;display:flex;flex-direction:column;}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;}
 .dot.critical{background:#dc2626}.dot.major{background:#f59e0b}.dot.minor{background:#148c59}
-.report-shell { min-height:100vh; padding: 20px 28px; background:#eef1f5; max-width:1060px; margin:0 auto; }
+.report-shell { min-height:100vh; padding: 20px 28px; background:#f9f9f9; max-width:1060px; margin:0 auto; }
 .report-nav { display:flex; justify-content:space-between; align-items:center; margin-bottom: 14px; }
 .card { position: sticky; top: 20px; margin-bottom:24px; min-height: 120px; border-radius:16px; padding:24px; background: rgba(255,255,255,.8); }
 .cta-tray { position:relative; margin-bottom:24px; border-radius:16px; padding:24px; background: linear-gradient(135deg, #186132, #14D571); color:white; }
