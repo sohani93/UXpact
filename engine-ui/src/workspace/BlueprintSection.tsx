@@ -4,22 +4,11 @@ import type { Diagnosis, JourneyBreak } from "../lib/types";
 import { generateVisionRebuild, deployVariant, embedSnippetFor } from "../lib/api";
 import { getDb } from "../lib/db";
 import Reveal from "../shared/Reveal";
+import { ARCHETYPES, ARCHETYPE_META, ArchetypeIcon, StoryLens } from "./ArchetypeLens";
 
 const DEFAULT_SECTION_ORDER = ["hero", "features", "social", "pricing", "cta2"];
 const ZONE_LABEL: Record<string, string> = { nav: "Nav", hero: "Hero", features: "Features", social: "Customers", pricing: "Pricing", cta2: "Bottom CTA" };
 const STAGE_TO_ZONE: Record<string, string> = { arrival: "hero", understanding: "features", "trust-building": "social", decision: "pricing", action: "cta2" };
-
-// Story direction is presented as what it does to the copy, never the bare
-// archetype name — the archetype itself is passed to generation but never
-// shown as a personality-quiz label.
-const STORY_DIRECTIONS: { archetype: string; label: string; hint: string }[] = [
-  { archetype: "Hero", label: "Fast, outcome-first", hint: "Lead with results, urgency, momentum." },
-  { archetype: "Sage", label: "Expert & credible", hint: "Lead with proof, method, depth." },
-  { archetype: "Outlaw", label: "Bold & different", hint: "Lead with contrast to the status quo." },
-  { archetype: "Caregiver", label: "Warm & supportive", hint: "Lead with reassurance and care." },
-  { archetype: "Creator", label: "Crafted & original", hint: "Lead with craft and originality." },
-  { archetype: "Ruler", label: "Premium & authoritative", hint: "Lead with exclusivity and authority." },
-];
 
 function zoneForBreak(jb: JourneyBreak): string {
   const text = jb.element.toLowerCase();
@@ -305,6 +294,15 @@ export default function BlueprintSection({ diagnosis }: { diagnosis: Diagnosis }
         </div>
       </Reveal>
 
+      {diagnosis.currentArchetype && diagnosis.targetArchetype && (
+        <Reveal delay={0.02}>
+          <div style={{ ...glass, borderRadius: radius.lg, padding: "16px 22px", marginBottom: 20, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 14 }}>
+            <span style={{ fontFamily: font.body, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: color.dim, flexShrink: 0 }}>Read through</span>
+            <StoryLens current={diagnosis.currentArchetype} target={diagnosis.targetArchetype} size="sm" />
+          </div>
+        </Reveal>
+      )}
+
       {view === "current" ? (
         <Reveal delay={0.05}>
           <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
@@ -328,22 +326,36 @@ export default function BlueprintSection({ diagnosis }: { diagnosis: Diagnosis }
         </Reveal>
       ) : (
         <Reveal delay={0.05}>
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: color.dim, marginBottom: 10, fontFamily: font.body }}>Choose the story direction</div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {ARCHETYPES.map((a) => {
+                const active = archetype === a;
+                const meta = ARCHETYPE_META[a];
+                return (
+                  <button key={a} onClick={() => setArchetype(a)} style={{
+                    display: "flex", alignItems: "center", gap: 10, textAlign: "left", padding: "10px 16px 10px 10px",
+                    borderRadius: radius.lg, cursor: "pointer", fontFamily: font.body, minWidth: 190, flex: "1 1 190px",
+                    border: active ? "none" : `1px solid ${color.border}`,
+                    background: active ? gradient.brand : "rgba(255,255,255,0.7)",
+                    boxShadow: active ? "0 4px 14px rgba(20,140,89,0.25)" : "none",
+                    transition: "all 0.15s",
+                  }}>
+                    <div style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0, background: active ? "rgba(255,255,255,0.22)" : meta.accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <ArchetypeIcon archetype={a} size={15} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: active ? "#fff" : color.navy }}>The {a}</div>
+                      <div style={{ fontSize: 10, lineHeight: 1.3, color: active ? "rgba(255,255,255,0.85)" : color.muted, maxWidth: 150 }}>{meta.essence}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 18, alignItems: "flex-start" }}>
             <div style={{ ...glass, borderRadius: radius.lg, padding: "20px", position: "sticky", top: 90 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: color.dim, marginBottom: 10, fontFamily: font.body }}>Story direction</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20 }}>
-                {STORY_DIRECTIONS.map((d) => (
-                  <button key={d.archetype} onClick={() => setArchetype(d.archetype)} style={{
-                    textAlign: "left", padding: "9px 12px", borderRadius: 9, border: "none", cursor: "pointer", fontFamily: font.body,
-                    background: archetype === d.archetype ? gradient.brand : "rgba(11,28,72,0.04)",
-                    color: archetype === d.archetype ? "#fff" : color.navy,
-                  }}>
-                    <div style={{ fontSize: 12, fontWeight: 700 }}>{d.label}</div>
-                    <div style={{ fontSize: 10.5, opacity: 0.85 }}>{d.hint}</div>
-                  </button>
-                ))}
-              </div>
-
               <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: color.dim, marginBottom: 10, fontFamily: font.body }}>Section order</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20 }}>
                 {sectionOrder.map((zone, i) => (
