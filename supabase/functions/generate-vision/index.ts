@@ -1,55 +1,48 @@
-// ─── UXPACT VISION SANDBOX — generate-vision Edge Function ───
-// Step 1 of 2. Accepts a user's Vision sandbox choices, sends the real site
-// HTML through the Python DOM-fidelity microservice, then has Claude
-// rewrite/restructure it per those choices. Returns a jobId immediately and
-// does the actual work via EdgeRuntime.waitUntil — Supabase Edge Functions
-// have a hard ~150s per-invocation wall-clock limit (measured directly
-// against this project), and a full page rewrite with a 16k-token output
-// budget routinely runs close to or past that on its own. The frontend
-// polls vision_generation_jobs (RLS allows anon SELECT) for the draft, then
-// calls self-check-vision (step 2) to verify + revise it before ever
-// showing it to the user.
-//
-// Never writes to vision_versions — saving a version is a separate,
-// explicit frontend action (POST to vision_versions directly via the client).
-
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// ─── CORS ───
-const corsHeaders = {
+// ─── VISION PRO — GENERATE (step 1 of 2) ───
+// Conversion Blueprint's Restructured view: takes the user's story
+// direction, section order, and copy instructions, sends the real page
+// through the DOM-fidelity microservice, then has Claude rewrite it.
+// Returns a jobId immediately and does the work via EdgeRuntime.waitUntil —
+// Supabase Edge Functions have a hard ~150s per-invocation wall-clock limit
+// (measured directly against this project), and a full-page HTML round
+// trip is an output-token-bound task that can exceed it even on
+// medium-sized real pages. Step 2 (self-check) verifies + revises before
+// this is ever shown to the user.
+//
+// Never writes to vision_versions — saving a version is a separate,
+// explicit frontend action.
+
+const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
-function jsonResponse(body: unknown, status: number): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+function json(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+}
+function jsonError(code: string, message: string, status: number): Response {
+  return json({ error: code, message }, status);
 }
 
-function errorResponse(code: string, message: string, status: number): Response {
-  return jsonResponse({ error: code, message }, status);
-}
-
-// ─── CONFIG ───
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const VISION_SERVICE_URL = Deno.env.get("VISION_SERVICE_URL");
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const supabase = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
+const db = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
 
-const GENERATE_VISION_SYSTEM_PROMPT =
-  "You are a conversion-focused web designer and copywriter. You receive a real website's HTML and a set of instructions. " +
-  "You return a complete, valid, self-contained HTML document — the same site, restructured and rewritten per the instructions. " +
-  "Preserve all visual design, CSS, images, and layout. Only change structure and copy per the instructions. " +
-  "Never add fictional content. Never remove brand elements. Return only the HTML document, nothing else. " +
-  "The <head> of the input HTML may contain <link>/<style> tags that load web fonts (e.g. Google Fonts) or other " +
-  "external stylesheets the visual design depends on — carry every one of these over into your output's <head> " +
-  "exactly as given, even if the tags don't visibly relate to the sections you're restructuring. Iframes render this " +
-  "document in isolation and do not inherit any fonts or styles from elsewhere, so anything not explicitly included " +
-  "here will not render.";
+const VISION_REWRITE_SYSTEM_PROMPT =
+  "You are a conversion-focused web designer and copywriter. You receive a real website's HTML and a set of " +
+  "instructions. You return a complete, valid, self-contained HTML document — the same site, restructured and " +
+  "rewritten per the instructions. Preserve all visual design, CSS, images, and layout. Only change structure and " +
+  "copy per the instructions. Never add fictional content. Never remove brand elements. Return only the HTML " +
+  "document, nothing else. The <head> of the input HTML may contain <link>/<style> tags that load web fonts or " +
+  "other external stylesheets the visual design depends on — carry every one of these over into your output's " +
+  "<head> exactly as given, even if the tags don't visibly relate to the sections you're restructuring. Iframes " +
+  "render this document in isolation and do not inherit any fonts or styles from elsewhere, so anything not " +
+  "explicitly included here will not render.";
 
 interface GenerateVisionPayload {
   auditId?: string;
@@ -59,62 +52,49 @@ interface GenerateVisionPayload {
   rawHtml?: string;
 }
 
-// ─── PYTHON MICROSERVICE ───
-async function processWithMicroservice(rawHtml: string, sectionOrder: string[]): Promise<{ success: true; html: string } | { success: false; message: string }> {
-  if (!VISION_SERVICE_URL) {
-    return { success: false, message: "Vision DOM service is not configured (VISION_SERVICE_URL unset)." };
-  }
+async function cleanupDom(rawHtml: string, sectionOrder: string[]): Promise<{ ok: true; html: string } | { ok: false; message: string }> {
+  if (!VISION_SERVICE_URL) return { ok: false, message: "Vision DOM service is not configured (VISION_SERVICE_URL unset)." };
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20_000);
+  const timer = setTimeout(() => controller.abort(), 20_000);
   try {
-    const response = await fetch(VISION_SERVICE_URL, {
+    const res = await fetch(VISION_SERVICE_URL, {
       method: "POST",
       signal: controller.signal,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rawHtml, sectionOrder }),
     });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      return { success: false, message: `DOM service returned ${response.status}: ${body.slice(0, 300)}` };
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, message: `DOM service returned ${res.status}: ${body.slice(0, 300)}` };
     }
-    const data = await response.json();
-    if (!data?.html || typeof data.html !== "string") {
-      return { success: false, message: "DOM service returned no HTML." };
-    }
-    return { success: true, html: data.html };
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      return { success: false, message: "DOM service timed out." };
-    }
-    return { success: false, message: error instanceof Error ? error.message : "Failed to reach DOM service." };
+    const data = await res.json();
+    if (!data?.html || typeof data.html !== "string") return { ok: false, message: "DOM service returned no HTML." };
+    return { ok: true, html: data.html };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") return { ok: false, message: "DOM service timed out." };
+    return { ok: false, message: err instanceof Error ? err.message : "Failed to reach DOM service." };
   } finally {
-    clearTimeout(timeoutId);
+    clearTimeout(timer);
   }
 }
 
-// ─── CLAUDE — FULL HTML REWRITE ───
-function looksLikeHtmlDocument(text: string): boolean {
+function looksLikeHtml(text: string): boolean {
   const head = text.trim().slice(0, 200).toLowerCase();
   return head.includes("<html") || head.includes("<!doctype") || head.includes("<body");
 }
-
 // A document that starts like HTML but runs out of max_tokens mid-generation
-// still passes looksLikeHtmlDocument — checking only the closing tag catches
-// that silent truncation instead of saving a broken document as if it succeeded.
+// still passes looksLikeHtml — checking the closing tag catches that silent
+// truncation instead of saving a broken document as if it succeeded.
 function looksComplete(text: string): boolean {
-  const tail = text.trim().slice(-30).toLowerCase();
-  return tail.includes("</html>");
+  return text.trim().slice(-30).toLowerCase().includes("</html>");
 }
 
-// Non-streaming requests with large max_tokens risk hitting HTTP timeouts before
-// the full response is generated server-side; streaming avoids that by returning
-// bytes as they're produced. We only need the concatenated text, not individual events.
-async function readStreamedText(response: Response): Promise<string> {
+async function collectStreamedText(response: Response): Promise<string> {
   const reader = response.body?.getReader();
   if (!reader) return "";
   const decoder = new TextDecoder();
   let buffer = "";
-  let text = "";
+  let out = "";
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -124,171 +104,131 @@ async function readStreamedText(response: Response): Promise<string> {
     for (const line of lines) {
       if (!line.startsWith("data: ")) continue;
       try {
-        const event = JSON.parse(line.slice(6));
-        if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
-          text += event.delta.text;
-        }
-      } catch {
-        // ignore malformed SSE lines
-      }
+        const evt = JSON.parse(line.slice(6));
+        if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") out += evt.delta.text;
+      } catch { /* skip malformed SSE line */ }
     }
   }
-  return text;
+  return out;
 }
 
-async function generateWithClaude(args: {
-  sanitizedHtml: string;
+async function rewriteWithClaude(args: {
+  html: string;
   archetype: string;
   sectionOrder: string[];
   copySelections: Record<string, string>;
-}): Promise<{ success: true; html: string } | { success: false; message: string }> {
-  if (!ANTHROPIC_API_KEY) {
-    return { success: false, message: "Claude API key is not configured for the Vision sandbox." };
-  }
+}): Promise<{ ok: true; html: string } | { ok: false; message: string }> {
+  if (!ANTHROPIC_API_KEY) return { ok: false, message: "Claude API key is not configured for Vision Pro." };
 
-  const { sanitizedHtml, archetype, sectionOrder, copySelections } = args;
-  const userMessage = [
-    `Target story archetype: ${archetype || "not specified"}.`,
+  const { html, archetype, sectionOrder, copySelections } = args;
+  const message = [
+    `Target story direction: ${archetype || "not specified"}.`,
     `Requested section order (top to bottom): ${sectionOrder.length ? sectionOrder.join(" → ") : "keep current order"}.`,
     `Copy rewrite instructions per section:\n${JSON.stringify(copySelections, null, 2)}`,
-    `\nHere is the sanitised site HTML to restructure and rewrite:\n\n${sanitizedHtml}`,
+    `\nHere is the sanitised site HTML to restructure and rewrite:\n\n${html}`,
   ].join("\n\n");
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 130_000);
+  const timer = setTimeout(() => controller.abort(), 130_000);
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
+      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({
         model: "claude-opus-5",
         max_tokens: 16000,
         stream: true,
-        // Full-page rewrites are a structure/copy task, not a hard multi-step reasoning
-        // problem — "high" (the default) routinely pushed generation past 120s against
-        // Supabase's ~150s hard per-invocation ceiling. "Medium" still timed out on a
-        // large real page (measured: 240KB raw HTML, 146s). "Low" trades more depth for
-        // the latency margin a real full-page round trip needs under this ceiling.
+        // Full-page rewrites are output-token-bound, not reasoning-bound — "low"
+        // effort is the real latency lever here, not a quality compromise for
+        // this task shape. Measured directly against this project: "medium"
+        // still timed out on a 240KB real page at 146s.
         output_config: { effort: "low" },
-        system: [{ type: "text", text: GENERATE_VISION_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: userMessage }],
+        system: [{ type: "text", text: VISION_REWRITE_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: message }],
       }),
     });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      console.error("generate-vision: Claude API error", response.status, body.slice(0, 500));
-      return { success: false, message: `Claude API returned ${response.status}: ${body.slice(0, 300)}` };
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error("generate-vision: Claude API error", res.status, body.slice(0, 500));
+      return { ok: false, message: `Claude API returned ${res.status}: ${body.slice(0, 300)}` };
     }
-    const html = (await readStreamedText(response)).trim();
-    if (!html || !looksLikeHtmlDocument(html)) {
-      console.error("generate-vision: malformed Claude output", html.slice(0, 500));
-      return { success: false, message: "Claude did not return a valid HTML document." };
+    const html2 = (await collectStreamedText(res)).trim();
+    if (!html2 || !looksLikeHtml(html2)) {
+      console.error("generate-vision: malformed Claude output", html2.slice(0, 500));
+      return { ok: false, message: "Claude did not return a valid HTML document." };
     }
-    if (!looksComplete(html)) {
-      console.error("generate-vision: output truncated before completion (hit max_tokens)", html.length, html.slice(-200));
-      return { success: false, message: "Generation ran out of output budget before finishing the page — the result would have been a broken, cut-off document, so nothing was saved." };
+    if (!looksComplete(html2)) {
+      console.error("generate-vision: output truncated before completion", html2.length, html2.slice(-200));
+      return { ok: false, message: "Generation ran out of output budget before finishing the page — the result would have been a broken, cut-off document, so nothing was saved." };
     }
-    return { success: true, html };
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      return { success: false, message: "Generation timed out." };
-    }
-    console.error("generate-vision: Claude call failed", error);
-    return { success: false, message: error instanceof Error ? error.message : "Failed to generate HTML." };
+    return { ok: true, html: html2 };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") return { ok: false, message: "Generation timed out." };
+    console.error("generate-vision: Claude call failed", err);
+    return { ok: false, message: err instanceof Error ? err.message : "Failed to generate HTML." };
   } finally {
-    clearTimeout(timeoutId);
+    clearTimeout(timer);
   }
 }
 
-// ─── PIPELINE ───
-async function runPipeline(jobId: string, payload: GenerateVisionPayload): Promise<void> {
-  if (!supabase) return;
-
-  const fail = async (message: string) => {
-    await supabase.from("vision_generation_jobs").update({ status: "error", error_message: message, completed_at: new Date().toISOString() }).eq("id", jobId);
-  };
+async function runGeneration(jobId: string, payload: GenerateVisionPayload): Promise<void> {
+  if (!db) return;
+  const fail = (message: string) => db.from("vision_generation_jobs").update({ status: "error", error_message: message, completed_at: new Date().toISOString() }).eq("id", jobId);
 
   const rawHtml = payload.rawHtml;
-  if (!rawHtml || typeof rawHtml !== "string") {
-    return fail("rawHtml is required — this audit predates raw HTML capture.");
-  }
+  if (!rawHtml || typeof rawHtml !== "string") { await fail("rawHtml is required — this audit predates raw HTML capture."); return; }
 
   const archetype = typeof payload.archetype === "string" ? payload.archetype : "";
   const sectionOrder = Array.isArray(payload.sectionOrder) ? payload.sectionOrder.filter((s): s is string => typeof s === "string") : [];
   const copySelections = payload.copySelections && typeof payload.copySelections === "object" ? payload.copySelections : {};
 
-  const domResult = await processWithMicroservice(rawHtml, sectionOrder);
-  if (domResult.success === false) {
-    return fail(domResult.message);
-  }
+  const cleaned = await cleanupDom(rawHtml, sectionOrder);
+  if (!cleaned.ok) { await fail(cleaned.message); return; }
 
-  // A full-page rewrite asks Claude to reproduce the whole document back out, so
-  // output size scales with input size. Measured directly against this project:
-  // a 240KB real page timed out at effort:medium; a 60KB real page still timed out
-  // at effort:low. Output token throughput, not reasoning effort, is the real
-  // constraint here — a 60KB reproduction plus edits didn't finish emitting inside
-  // Supabase's ~150s per-invocation ceiling. Cut off well below that measured
-  // failure point, and fail fast with a specific reason rather than burning the
-  // full budget on a page that structurally can't finish.
+  // A full-page rewrite must reproduce roughly as much output as it reads in.
+  // Measured directly against this project: a 240KB page timed out at
+  // effort:medium; a 60KB page still timed out at effort:low. Cut off well
+  // below the measured failure point and fail fast with a specific reason
+  // rather than burning the full budget on a page that can't finish.
   const MAX_CLEANED_HTML_BYTES = 35_000;
-  if (domResult.html.length > MAX_CLEANED_HTML_BYTES) {
-    return fail(
-      `This page is too large for a full-page rebuild in one pass (${Math.round(domResult.html.length / 1000)}KB after cleanup, limit ${MAX_CLEANED_HTML_BYTES / 1000}KB). ` +
+  if (cleaned.html.length > MAX_CLEANED_HTML_BYTES) {
+    await fail(
+      `This page is too large for a full-page rebuild in one pass (${Math.round(cleaned.html.length / 1000)}KB after cleanup, limit ${MAX_CLEANED_HTML_BYTES / 1000}KB). ` +
       "Generating a complete rewritten document requires Claude to reproduce roughly as much output as it reads in, and a page this size can't finish within Supabase's per-invocation time limit.",
     );
+    return;
   }
 
-  const claudeResult = await generateWithClaude({
-    sanitizedHtml: domResult.html,
-    archetype,
-    sectionOrder,
-    copySelections,
-  });
-  if (claudeResult.success === false) {
-    return fail(claudeResult.message);
-  }
+  const rewritten = await rewriteWithClaude({ html: cleaned.html, archetype, sectionOrder, copySelections });
+  if (!rewritten.ok) { await fail(rewritten.message); return; }
 
-  const { error: updateError } = await supabase
-    .from("vision_generation_jobs")
-    .update({ status: "done", html: claudeResult.html, completed_at: new Date().toISOString() })
-    .eq("id", jobId);
-  if (updateError) console.error("generate-vision: failed to write completed job", updateError.message);
+  const { error } = await db.from("vision_generation_jobs").update({ status: "done", html: rewritten.html, completed_at: new Date().toISOString() }).eq("id", jobId);
+  if (error) console.error("generate-vision: failed to write completed job", error.message);
 }
 
-// ─── MAIN HANDLER ───
 Deno.serve(async (req: Request): Promise<Response> => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders, status: 204 });
-  if (req.method !== "POST") return errorResponse("METHOD_NOT_ALLOWED", "Method not allowed", 405);
-  if (!supabase) return errorResponse("NOT_CONFIGURED", "Supabase is not configured for this function.", 500);
+  if (req.method === "OPTIONS") return new Response(null, { headers: CORS, status: 204 });
+  if (req.method !== "POST") return jsonError("METHOD_NOT_ALLOWED", "Method not allowed", 405);
+  if (!db) return jsonError("NOT_CONFIGURED", "Supabase is not configured for this function.", 500);
 
   let payload: GenerateVisionPayload;
   try {
     payload = await req.json();
   } catch {
-    return errorResponse("INVALID_JSON", "Request body must be JSON", 400);
+    return jsonError("INVALID_JSON", "Request body must be JSON", 400);
   }
 
   if (!payload.rawHtml || typeof payload.rawHtml !== "string") {
-    return errorResponse("MISSING_RAW_HTML", "rawHtml is required — this audit predates raw HTML capture.", 400);
+    return jsonError("MISSING_RAW_HTML", "rawHtml is required — this audit predates raw HTML capture.", 400);
   }
 
   const auditId = typeof payload.auditId === "string" ? payload.auditId : null;
-  const { data: job, error: insertError } = await supabase
-    .from("vision_generation_jobs")
-    .insert({ audit_id: auditId, status: "pending", stage: "generate" })
-    .select("id")
-    .single();
-  if (insertError || !job?.id) {
-    return errorResponse("JOB_CREATE_FAILED", insertError?.message ?? "Failed to create generation job.", 500);
-  }
+  const { data: job, error } = await db.from("vision_generation_jobs").insert({ audit_id: auditId, status: "pending", stage: "generate" }).select("id").single();
+  if (error || !job?.id) return jsonError("JOB_CREATE_FAILED", error?.message ?? "Failed to create generation job.", 500);
 
   // deno-lint-ignore no-explicit-any
-  (globalThis as any).EdgeRuntime?.waitUntil(runPipeline(job.id, payload));
+  (globalThis as any).EdgeRuntime?.waitUntil(runGeneration(job.id, payload));
 
-  return jsonResponse({ jobId: job.id }, 202);
+  return json({ jobId: job.id }, 202);
 });

@@ -1,94 +1,65 @@
 import { useEffect, useState } from "react";
-import EngineInput from "./components/EngineInput";
-import LoadingState from "./components/LoadingState";
-import Workspace from "./pages/Workspace";
-import type { AuditData, AuditRequestFormData } from "./lib/ui-types";
+import IntakeForm from "./intake/IntakeForm";
+import ScanningView from "./intake/ScanningView";
+import Workspace from "./workspace/Workspace";
+import { runDiagnosis } from "./lib/api";
+import type { Diagnosis, IntakeFormData } from "./lib/types";
 
-type AuditMode = "input" | "loading";
-
-function getPath() { return window.location.pathname; }
-
+function currentPath() { return window.location.pathname; }
 function navigateTo(path: string) {
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
-function App() {
-  const [path, setPath] = useState(getPath());
+export default function App() {
+  const [path, setPath] = useState(currentPath());
   useEffect(() => {
-    const onPop = () => setPath(getPath());
+    const onPop = () => setPath(currentPath());
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  // One continuous workspace per site — Diagnosis, Conversion Blueprint, and
-  // UX Pulse all live as sections of the same page, not separate routes.
-  // Old links (/report/:id, /blueprint/:id, /vision/:id) redirect here rather than 404.
-  const workspaceMatch = path.match(/^\/(?:workspace|report|blueprint|reaudit|plugins|vision)\/(.+)$/);
-  if (workspaceMatch) {
-    const auditId = workspaceMatch[1];
-    if (!path.startsWith("/workspace/")) window.history.replaceState({}, "", `/workspace/${auditId}`);
-    return <Workspace auditId={auditId} />;
-  }
-  return <AuditPage />;
+  const workspaceMatch = path.match(/^\/workspace\/(.+)$/);
+  if (workspaceMatch) return <Workspace auditId={workspaceMatch[1]} />;
+
+  return <Intake />;
 }
 
-function AuditPage() {
-  const [mode, setMode] = useState<AuditMode>("input");
-  const [form, setForm] = useState<AuditRequestFormData>({ name: "", email: "", url: "", industry: "saas", goal: "", challenge: "", focusAreas: [] });
-  const [pendingData, setPendingData] = useState<AuditData | null>(null);
+const EMPTY_FORM: IntakeFormData = { name: "", email: "", url: "", industry: "saas", goal: "", challenge: "", focusAreas: [] };
 
-  const handleSubmit = async (formData: AuditRequestFormData) => {
-    const rawUrl = formData.url.trim();
-    const normalisedUrl = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
-    const normalisedFormData = { ...formData, url: normalisedUrl };
-    setForm(normalisedFormData);
-    setPendingData(null);
-    sessionStorage.setItem("auditContext", JSON.stringify(normalisedFormData));
+function Intake() {
+  const [form, setForm] = useState<IntakeFormData>(EMPTY_FORM);
+  const [phase, setPhase] = useState<"form" | "scanning">("form");
+  const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(null);
+
+  const handleSubmit = async (data: IntakeFormData) => {
+    const normalizedUrl = /^https?:\/\//i.test(data.url) ? data.url : `https://${data.url}`;
+    const normalized = { ...data, url: normalizedUrl };
+    setForm(normalized);
+    setDiagnosis(null);
+    setPhase("scanning");
     try {
-      const parsedUrl = new URL(normalisedUrl);
-      setMode("loading");
-      const endpoint = import.meta.env.VITE_AUDIT_ENDPOINT ?? "https://oxminualycvnxofoevjs.supabase.co/functions/v1/run-audit";
-      const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(normalisedFormData) });
-      const json = await response.json();
-      if (!response.ok || json.error || !json.auditId) { setMode("input"); return; }
-      const auditData: AuditData = {
-        auditId: json.auditId,
-        url: normalisedUrl,
-        domain: parsedUrl.hostname,
-        createdAt: new Date().toISOString(),
-        domData: json.domData ?? { navLinks: [], h1Text: parsedUrl.hostname, h2Texts: [], ctaTexts: [], paragraphTexts: [], testimonialTexts: [], trustLogoLabels: [], pricingTiers: [], imagesCount: 0, hasForm: false, metaTitle: "" },
-        currentArchetype: json.currentArchetype ?? null,
-        targetArchetype: json.targetArchetype ?? null,
-        narrativeVerdict: json.narrativeVerdict ?? null,
-        revenueLeakEstimate: json.revenueLeakEstimate ?? null,
-        journeyBreaks: json.journeyBreaks ?? null,
-        diagnosisError: json.diagnosisError ?? null,
-      };
-      sessionStorage.setItem(`audit:${auditData.auditId}`, JSON.stringify(auditData));
-      setPendingData(auditData);
-    } catch { setMode("input"); }
+      const result = await runDiagnosis(normalized);
+      if (result) {
+        sessionStorage.setItem(`diagnosis:${result.auditId}`, JSON.stringify(result));
+        setDiagnosis(result);
+      } else {
+        setPhase("form");
+      }
+    } catch {
+      setPhase("form");
+    }
   };
 
-  const handleAccess = () => {
-    if (!pendingData) return;
-    navigateTo(`/workspace/${pendingData.auditId}`);
-  };
+  if (phase === "scanning") {
+    return (
+      <ScanningView
+        url={form.url}
+        diagnosis={diagnosis}
+        onEnter={() => diagnosis && navigateTo(`/workspace/${diagnosis.auditId}`)}
+      />
+    );
+  }
 
-  return (
-    <>
-      {mode === "input" && <EngineInput onSubmit={handleSubmit} initialForm={form} />}
-      {mode === "loading" && (
-        <LoadingState
-          url={form.url}
-          goals={form.focusAreas}
-          auditData={pendingData}
-          onAccess={handleAccess}
-          onError={() => setMode("input")}
-        />
-      )}
-    </>
-  );
+  return <IntakeForm onSubmit={handleSubmit} initial={form} />;
 }
-
-export default App;
