@@ -4,7 +4,7 @@ import type { Diagnosis, JourneyBreak } from "../lib/types";
 import { generateVisionRebuild, deployVariant, embedSnippetFor } from "../lib/api";
 import { getDb } from "../lib/db";
 import Reveal from "../shared/Reveal";
-import { ARCHETYPES, ARCHETYPE_META, ArchetypeIcon, StoryLens } from "./ArchetypeLens";
+import { ARCHETYPES, ARCHETYPE_META, ArchetypeIcon } from "./ArchetypeLens";
 
 const DEFAULT_SECTION_ORDER = ["hero", "features", "social", "pricing", "cta2"];
 const ZONE_LABEL: Record<string, string> = { nav: "Nav", hero: "Hero", features: "Features", social: "Customers", pricing: "Pricing", cta2: "Bottom CTA" };
@@ -293,15 +293,6 @@ export default function BlueprintSection({ diagnosis }: { diagnosis: Diagnosis }
           </div>
         </div>
       </Reveal>
-
-      {diagnosis.currentArchetype && diagnosis.targetArchetype && (
-        <Reveal delay={0.02}>
-          <div style={{ ...glass, borderRadius: radius.lg, padding: "16px 22px", marginBottom: 20, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 14 }}>
-            <span style={{ fontFamily: font.body, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: color.dim, flexShrink: 0 }}>Read through</span>
-            <StoryLens current={diagnosis.currentArchetype} target={diagnosis.targetArchetype} size="sm" />
-          </div>
-        </Reveal>
-      )}
 
       {view === "current" ? (
         <Reveal delay={0.05}>
