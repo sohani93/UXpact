@@ -1,5 +1,6 @@
 import { DOMParser } from "https://deno.land/x/deno_dom/deno-dom-wasm.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callAi } from "../_shared/ai-client.ts";
 
 // ─── CHECK-DRIFT — Layer 3 (Pulse Pro drift monitor) ───
 // Two ways in:
@@ -51,7 +52,6 @@ function jsonResponse(body: unknown, status: number): Response {
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const supabase = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 
 // ─── CONFIG ───
 const CANDIDATE_THRESHOLD = 0.2; // >20% word-count change on a zone = candidate
@@ -117,33 +117,6 @@ function countWordOccurrences(text: string, words: string[]): number {
 }
 function hasAny(text: string, patterns: string[]): boolean {
   return patterns.some((p) => text.includes(p));
-}
-
-async function readStreamedText(response: Response): Promise<string> {
-  const reader = response.body?.getReader();
-  if (!reader) return "";
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let text = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      try {
-        const event = JSON.parse(line.slice(6));
-        if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
-          text += event.delta.text;
-        }
-      } catch {
-        // ignore malformed SSE lines
-      }
-    }
-  }
-  return text;
 }
 
 async function fetchHtml(url: string): Promise<{ success: true; html: string } | { success: false; error: string }> {
@@ -323,10 +296,6 @@ async function diagnoseJourney(args: {
   currentArchetype: Archetype;
   targetArchetype: Archetype;
 }): Promise<JourneyDiagnosis | null> {
-  if (!ANTHROPIC_API_KEY) {
-    console.error("check-drift diagnoseJourney: ANTHROPIC_API_KEY is not set — skipping AI diagnosis.");
-    return null;
-  }
   const { signals, industry, goal, currentArchetype, targetArchetype } = args;
   const userPayload = {
     current_archetype: currentArchetype,
@@ -350,39 +319,23 @@ async function diagnoseJourney(args: {
     you_we_ratio: Number(signals.youWeRatio.toFixed(2)),
   };
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 90_000);
+  const result = await callAi({
+    systemPrompt: JOURNEY_SYSTEM_PROMPT,
+    userContent: JSON.stringify(userPayload),
+    maxOutputTokens: 4000,
+    timeoutMs: 90_000,
+    jsonSchema: JOURNEY_DIAGNOSIS_SCHEMA,
+  });
+  if (!result.success) {
+    console.error(`check-drift diagnoseJourney: ${result.message}`);
+    return null;
+  }
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      signal: controller.signal,
-      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: "claude-opus-5",
-        max_tokens: 4000,
-        stream: true,
-        output_config: { effort: "medium", format: { type: "json_schema", schema: JOURNEY_DIAGNOSIS_SCHEMA } },
-        system: [{ type: "text", text: JOURNEY_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: JSON.stringify(userPayload) }],
-      }),
-    });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      console.error(`check-drift diagnoseJourney: Claude API returned ${response.status}: ${body.slice(0, 1000)}`);
-      return null;
-    }
-    const text = await readStreamedText(response);
-    if (!text) {
-      console.error("check-drift diagnoseJourney: no text content in streamed Claude response");
-      return null;
-    }
-    const parsed = JSON.parse(text) as { narrative_verdict: string; journey_breaks: unknown };
+    const parsed = JSON.parse(result.text) as { narrative_verdict: string; journey_breaks: unknown };
     return { narrative_verdict: parsed.narrative_verdict, journey_breaks: sanitizeJourneyBreaks(parsed.journey_breaks) };
   } catch (error) {
-    console.error("check-drift diagnoseJourney: request failed", error instanceof Error ? error.message : error);
+    console.error("check-drift diagnoseJourney: failed to parse AI response as JSON", error instanceof Error ? error.message : error);
     return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
@@ -415,47 +368,30 @@ async function assessRegression(args: {
   history: { severity: number; checkedAt: string }[];
   newSeverity: number;
 }): Promise<RegressionAssessment | null> {
-  if (!ANTHROPIC_API_KEY) {
-    console.error("check-drift assessRegression: ANTHROPIC_API_KEY is not set — skipping regression reasoning.");
-    return null;
-  }
   const userPayload = {
     journey_stage: args.journeyStage,
     element: args.element,
     historical_severities_oldest_first: args.history.map((h) => ({ severity: h.severity, checked_at: h.checkedAt })),
     new_severity: args.newSeverity,
   };
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20_000);
+  const result = await callAi({
+    systemPrompt: REGRESSION_SYSTEM_PROMPT,
+    userContent: JSON.stringify(userPayload),
+    maxOutputTokens: 800,
+    timeoutMs: 20_000,
+    jsonSchema: REGRESSION_SCHEMA,
+  });
+  if (!result.success) {
+    console.error(`check-drift assessRegression: ${result.message}`);
+    return null;
+  }
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      signal: controller.signal,
-      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: "claude-opus-5",
-        max_tokens: 800,
-        stream: true,
-        output_config: { effort: "medium", format: { type: "json_schema", schema: REGRESSION_SCHEMA } },
-        system: [{ type: "text", text: REGRESSION_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: JSON.stringify(userPayload) }],
-      }),
-    });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      console.error(`check-drift assessRegression: Claude API returned ${response.status}: ${body.slice(0, 500)}`);
-      return null;
-    }
-    const text = await readStreamedText(response);
-    if (!text) return null;
-    const parsed = JSON.parse(text) as RegressionAssessment;
+    const parsed = JSON.parse(result.text) as RegressionAssessment;
     if (parsed.regression_type !== "one_off" && parsed.regression_type !== "repeated") return null;
     return parsed;
   } catch (error) {
-    console.error("check-drift assessRegression: request failed", error instanceof Error ? error.message : error);
+    console.error("check-drift assessRegression: failed to parse AI response as JSON", error instanceof Error ? error.message : error);
     return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 

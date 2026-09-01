@@ -1,5 +1,6 @@
 import { DOMParser } from "https://deno.land/x/deno_dom/deno-dom-wasm.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callAi, AI_PROVIDER_LABEL } from "../_shared/ai-client.ts";
 
 // ─── RUN-AUDIT ───
 // The AI is the diagnosis. No rule-based checks, no scores, no findings library.
@@ -59,7 +60,6 @@ interface PageSignals {
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const supabase = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 
 function cleanText(input: string | null | undefined): string {
   return (input ?? "").replace(/\s+/g, " ").trim();
@@ -72,36 +72,6 @@ function countWordOccurrences(text: string, words: string[]): number {
 }
 function hasAny(text: string, patterns: string[]): boolean {
   return patterns.some((p) => text.includes(p));
-}
-
-// Non-streaming requests risk stalling past a safe client-side timeout before
-// the full response is generated server-side; streaming avoids that by
-// returning bytes as they're produced.
-async function readStreamedText(response: Response): Promise<string> {
-  const reader = response.body?.getReader();
-  if (!reader) return "";
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let text = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      try {
-        const event = JSON.parse(line.slice(6));
-        if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
-          text += event.delta.text;
-        }
-      } catch {
-        // ignore malformed SSE lines
-      }
-    }
-  }
-  return text;
 }
 
 async function fetchHtml(url: string): Promise<{ success: true; html: string } | { success: false; error: string }> {
@@ -287,10 +257,6 @@ async function diagnoseJourney(args: {
   goal: string;
   archetype: { current: Archetype; target: Archetype };
 }): Promise<JourneyDiagnosis | null> {
-  if (!ANTHROPIC_API_KEY) {
-    console.error("diagnoseJourney: ANTHROPIC_API_KEY is not set — skipping AI diagnosis.");
-    return null;
-  }
   const { signals, industry, goal, archetype } = args;
   const userPayload = {
     current_archetype: archetype.current,
@@ -314,40 +280,24 @@ async function diagnoseJourney(args: {
     you_we_ratio: Number(signals.youWeRatio.toFixed(2)),
   };
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 120_000);
+  const result = await callAi({
+    systemPrompt: JOURNEY_SYSTEM_PROMPT,
+    userContent: JSON.stringify(userPayload),
+    maxOutputTokens: 4000,
+    timeoutMs: 120_000,
+    jsonSchema: JOURNEY_DIAGNOSIS_SCHEMA,
+  });
+  if (!result.success) {
+    console.error(`diagnoseJourney: ${result.message}`);
+    return null;
+  }
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      signal: controller.signal,
-      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: "claude-opus-5",
-        max_tokens: 4000,
-        stream: true,
-        output_config: { effort: "medium", format: { type: "json_schema", schema: JOURNEY_DIAGNOSIS_SCHEMA } },
-        system: [{ type: "text", text: JOURNEY_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: JSON.stringify(userPayload) }],
-      }),
-    });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      console.error(`diagnoseJourney: Claude API returned ${response.status}: ${body.slice(0, 1000)}`);
-      return null;
-    }
-    const text = await readStreamedText(response);
-    if (!text) {
-      console.error("diagnoseJourney: no text content in streamed Claude response");
-      return null;
-    }
-    const parsed = JSON.parse(text) as JourneyDiagnosis;
+    const parsed = JSON.parse(result.text) as JourneyDiagnosis;
     if (!Array.isArray(parsed.journey_breaks)) return null;
     return parsed;
   } catch (error) {
-    console.error("diagnoseJourney: request failed", error instanceof Error ? error.message : error);
+    console.error("diagnoseJourney: failed to parse AI response as JSON", error instanceof Error ? error.message : error);
     return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
@@ -374,6 +324,7 @@ async function saveAudit(args: {
       target_archetype: archetype.target,
       narrative_verdict: diagnosis?.narrative_verdict ?? null,
       revenue_leak_estimate: diagnosis?.revenue_leak_estimate ?? null,
+      ai_provider: diagnosis ? AI_PROVIDER_LABEL : null,
     })
     .select("id")
     .single();
@@ -460,6 +411,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       targetArchetype: archetype.target,
       narrativeVerdict: diagnosis?.narrative_verdict ?? null,
       revenueLeakEstimate: diagnosis?.revenue_leak_estimate ?? null,
+      aiProvider: diagnosis ? AI_PROVIDER_LABEL : null,
       journeyBreaks: diagnosis?.journey_breaks.map((b) => ({
         journeyStage: b.journey_stage,
         element: b.element,

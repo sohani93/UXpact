@@ -15,6 +15,7 @@
 // vision_generation_jobs (RLS allows anon SELECT).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callAi } from "../_shared/ai-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,7 +30,6 @@ function errorResponse(code: string, message: string, status: number): Response 
   return jsonResponse({ error: code, message }, status);
 }
 
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const supabase = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
@@ -56,33 +56,6 @@ function looksLikeHtmlDocument(text: string): boolean {
 function looksComplete(text: string): boolean {
   const tail = text.trim().slice(-30).toLowerCase();
   return tail.includes("</html>");
-}
-
-async function readStreamedText(response: Response): Promise<string> {
-  const reader = response.body?.getReader();
-  if (!reader) return "";
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let text = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      try {
-        const event = JSON.parse(line.slice(6));
-        if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
-          text += event.delta.text;
-        }
-      } catch {
-        // ignore malformed SSE lines
-      }
-    }
-  }
-  return text;
 }
 
 interface JourneyBreakRow {
@@ -147,44 +120,31 @@ interface CritiqueResult {
 }
 
 async function critiqueDraft(args: { draftText: string; breaks: JourneyBreakRow[] }): Promise<CritiqueResult[] | null> {
-  if (!ANTHROPIC_API_KEY || args.breaks.length === 0) return null;
+  if (args.breaks.length === 0) return null;
   const userPayload = {
     journey_breaks_to_verify: args.breaks.map((b) => ({ journey_stage: b.journey_stage, element: b.element, original_problem: b.reason })),
     rewritten_page_text: args.draftText.slice(0, 40_000),
   };
-  const controller = new AbortController();
-  // Kept tight and streamed: this runs before reviseDraft in the same background
-  // invocation, and both share Supabase's single ~150s per-invocation ceiling —
-  // critique eating into that budget directly shrinks revise's margin.
-  const timeoutId = setTimeout(() => controller.abort(), 30_000);
+  // Kept tight: this runs before reviseDraft in the same background invocation,
+  // and both share Supabase's single ~150s per-invocation ceiling — critique
+  // eating into that budget directly shrinks revise's margin.
+  const result = await callAi({
+    systemPrompt: CRITIQUE_SYSTEM_PROMPT,
+    userContent: JSON.stringify(userPayload),
+    maxOutputTokens: 2000,
+    timeoutMs: 30_000,
+    jsonSchema: CRITIQUE_SCHEMA,
+  });
+  if (!result.success) {
+    console.error("self-check-vision: critique call failed", result.message);
+    return null;
+  }
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      signal: controller.signal,
-      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: "claude-opus-5",
-        max_tokens: 2000,
-        stream: true,
-        output_config: { effort: "low", format: { type: "json_schema", schema: CRITIQUE_SCHEMA } },
-        system: [{ type: "text", text: CRITIQUE_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: JSON.stringify(userPayload) }],
-      }),
-    });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      console.error("self-check-vision: critique call failed", response.status, body.slice(0, 500));
-      return null;
-    }
-    const text = await readStreamedText(response);
-    if (!text) return null;
-    const parsed = JSON.parse(text) as { results: CritiqueResult[] };
+    const parsed = JSON.parse(result.text) as { results: CritiqueResult[] };
     return Array.isArray(parsed.results) ? parsed.results : null;
   } catch (error) {
-    console.error("self-check-vision: critique call error", error instanceof Error ? error.message : error);
+    console.error("self-check-vision: failed to parse critique response as JSON", error instanceof Error ? error.message : error);
     return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
@@ -192,7 +152,6 @@ async function reviseDraft(args: {
   draftHtml: string;
   unresolved: CritiqueResult[];
 }): Promise<{ success: true; html: string } | { success: false; message: string }> {
-  if (!ANTHROPIC_API_KEY) return { success: false, message: "Claude API key is not configured." };
   const { draftHtml, unresolved } = args;
   const userMessage = [
     "Here is a rewritten webpage you produced. A QA pass found that it does NOT actually fix the following specific issues:",
@@ -201,48 +160,28 @@ async function reviseDraft(args: {
     `\nCurrent HTML:\n\n${draftHtml}`,
   ].join("\n\n");
 
-  const controller = new AbortController();
   // Budgeted so critique (up to 30s) + revise together stay under Supabase's
   // ~150s per-invocation ceiling with margin, not just revise alone.
-  const timeoutId = setTimeout(() => controller.abort(), 110_000);
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      signal: controller.signal,
-      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: "claude-opus-5",
-        max_tokens: 16000,
-        stream: true,
-        output_config: { effort: "low" },
-        system: [{ type: "text", text: GENERATE_VISION_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: userMessage }],
-      }),
-    });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      console.error("self-check-vision: revise call failed", response.status, body.slice(0, 500));
-      return { success: false, message: `Claude API returned ${response.status} during revision.` };
-    }
-    const html = (await readStreamedText(response)).trim();
-    if (!html || !looksLikeHtmlDocument(html)) {
-      console.error("self-check-vision: malformed revise output", html.slice(0, 500));
-      return { success: false, message: "Claude did not return a valid revised HTML document." };
-    }
-    if (!looksComplete(html)) {
-      console.error("self-check-vision: revised output truncated before completion (hit max_tokens)", html.length, html.slice(-200));
-      return { success: false, message: "Revision ran out of output budget before finishing the page — the result would have been a broken, cut-off document, so the unrevised draft was kept instead." };
-    }
-    return { success: true, html };
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      return { success: false, message: "Revision timed out." };
-    }
-    console.error("self-check-vision: revise call error", error);
-    return { success: false, message: error instanceof Error ? error.message : "Failed to revise HTML." };
-  } finally {
-    clearTimeout(timeoutId);
+  const result = await callAi({
+    systemPrompt: GENERATE_VISION_SYSTEM_PROMPT,
+    userContent: userMessage,
+    maxOutputTokens: 16000,
+    timeoutMs: 110_000,
+  });
+  if (!result.success) {
+    console.error("self-check-vision: revise call failed", result.message);
+    return { success: false, message: result.message };
   }
+  const html = result.text.trim();
+  if (!html || !looksLikeHtmlDocument(html)) {
+    console.error("self-check-vision: malformed revise output", html.slice(0, 500));
+    return { success: false, message: "The AI did not return a valid revised HTML document." };
+  }
+  if (!looksComplete(html)) {
+    console.error("self-check-vision: revised output truncated before completion (hit max_tokens)", html.length, html.slice(-200));
+    return { success: false, message: "Revision ran out of output budget before finishing the page — the result would have been a broken, cut-off document, so the unrevised draft was kept instead." };
+  }
+  return { success: true, html };
 }
 
 interface SelfCheckPayload {

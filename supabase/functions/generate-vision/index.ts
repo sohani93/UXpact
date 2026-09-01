@@ -14,6 +14,7 @@
 // explicit frontend action (POST to vision_versions directly via the client).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callAi } from "../_shared/ai-client.ts";
 
 // ─── CORS ───
 const corsHeaders = {
@@ -34,7 +35,6 @@ function errorResponse(code: string, message: string, status: number): Response 
 }
 
 // ─── CONFIG ───
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const VISION_SERVICE_URL = Deno.env.get("VISION_SERVICE_URL");
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -106,46 +106,12 @@ function looksComplete(text: string): boolean {
   return tail.includes("</html>");
 }
 
-// Non-streaming requests with large max_tokens risk hitting HTTP timeouts before
-// the full response is generated server-side; streaming avoids that by returning
-// bytes as they're produced. We only need the concatenated text, not individual events.
-async function readStreamedText(response: Response): Promise<string> {
-  const reader = response.body?.getReader();
-  if (!reader) return "";
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let text = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      try {
-        const event = JSON.parse(line.slice(6));
-        if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
-          text += event.delta.text;
-        }
-      } catch {
-        // ignore malformed SSE lines
-      }
-    }
-  }
-  return text;
-}
-
 async function generateWithClaude(args: {
   sanitizedHtml: string;
   archetype: string;
   sectionOrder: string[];
   copySelections: Record<string, string>;
 }): Promise<{ success: true; html: string } | { success: false; message: string }> {
-  if (!ANTHROPIC_API_KEY) {
-    return { success: false, message: "Claude API key is not configured for the Vision sandbox." };
-  }
-
   const { sanitizedHtml, archetype, sectionOrder, copySelections } = args;
   const userMessage = [
     `Target story archetype: ${archetype || "not specified"}.`,
@@ -154,55 +120,26 @@ async function generateWithClaude(args: {
     `\nHere is the sanitised site HTML to restructure and rewrite:\n\n${sanitizedHtml}`,
   ].join("\n\n");
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 130_000);
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-opus-5",
-        max_tokens: 16000,
-        stream: true,
-        // Full-page rewrites are a structure/copy task, not a hard multi-step reasoning
-        // problem — "high" (the default) routinely pushed generation past 120s against
-        // Supabase's ~150s hard per-invocation ceiling. "Medium" still timed out on a
-        // large real page (measured: 240KB raw HTML, 146s). "Low" trades more depth for
-        // the latency margin a real full-page round trip needs under this ceiling.
-        output_config: { effort: "low" },
-        system: [{ type: "text", text: GENERATE_VISION_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: userMessage }],
-      }),
-    });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      console.error("generate-vision: Claude API error", response.status, body.slice(0, 500));
-      return { success: false, message: `Claude API returned ${response.status}: ${body.slice(0, 300)}` };
-    }
-    const html = (await readStreamedText(response)).trim();
-    if (!html || !looksLikeHtmlDocument(html)) {
-      console.error("generate-vision: malformed Claude output", html.slice(0, 500));
-      return { success: false, message: "Claude did not return a valid HTML document." };
-    }
-    if (!looksComplete(html)) {
-      console.error("generate-vision: output truncated before completion (hit max_tokens)", html.length, html.slice(-200));
-      return { success: false, message: "Generation ran out of output budget before finishing the page — the result would have been a broken, cut-off document, so nothing was saved." };
-    }
-    return { success: true, html };
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      return { success: false, message: "Generation timed out." };
-    }
-    console.error("generate-vision: Claude call failed", error);
-    return { success: false, message: error instanceof Error ? error.message : "Failed to generate HTML." };
-  } finally {
-    clearTimeout(timeoutId);
+  const result = await callAi({
+    systemPrompt: GENERATE_VISION_SYSTEM_PROMPT,
+    userContent: userMessage,
+    maxOutputTokens: 16000,
+    timeoutMs: 130_000,
+  });
+  if (!result.success) {
+    console.error("generate-vision: AI call failed", result.message);
+    return { success: false, message: result.message };
   }
+  const html = result.text.trim();
+  if (!html || !looksLikeHtmlDocument(html)) {
+    console.error("generate-vision: malformed AI output", html.slice(0, 500));
+    return { success: false, message: "The AI did not return a valid HTML document." };
+  }
+  if (!looksComplete(html)) {
+    console.error("generate-vision: output truncated before completion (hit max_tokens)", html.length, html.slice(-200));
+    return { success: false, message: "Generation ran out of output budget before finishing the page — the result would have been a broken, cut-off document, so nothing was saved." };
+  }
+  return { success: true, html };
 }
 
 // ─── PIPELINE ───
