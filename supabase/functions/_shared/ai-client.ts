@@ -6,13 +6,18 @@
 // structured output — everything provider-specific (request shape, response
 // parsing, auth) lives only in here.
 //
-// Provider: Google Gemini (gemini-2.5-flash via a free Google AI Studio key,
-// GEMINI_API_KEY) — swapped in for Anthropic because the project's Anthropic
-// account ran out of credits. Nothing else in this file assumes Anthropic;
-// swapping provider again later only means editing this file.
+// Provider: Google Gemini via a free Google AI Studio key (GEMINI_API_KEY) —
+// swapped in for Anthropic because the project's Anthropic account ran out
+// of credits. Nothing else in this file assumes Anthropic; swapping provider
+// again later only means editing this file.
+//
+// Model: gemini-2.5-flash was the intended target, but as of this key's
+// activation the live API rejects it with a 404 ("no longer available to
+// new users") and names gemini-3.6-flash as the replacement — confirmed
+// directly against the real API, not assumed. Using that instead.
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-3.6-flash";
 
 // Written onto the audits row (and any future caller that wants it) so it's
 // always clear which provider/model actually produced a given result.
@@ -64,7 +69,7 @@ function toGeminiSchema(schema: JsonSchema): JsonSchema {
 
 /**
  * The one entry point for every AI call in this codebase. Non-streaming:
- * gemini-2.5-flash is fast enough that Supabase's ~150s per-invocation
+ * Gemini's flash tier is fast enough that Supabase's ~150s per-invocation
  * ceiling isn't at risk the way it was with Anthropic's larger models, so
  * this stays simple rather than replicating the old SSE-streaming parser.
  */
