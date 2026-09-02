@@ -3,13 +3,12 @@
 // version is live (deployed from Blueprint), Vision Pro lets the user add a
 // second (or further) version to run alongside it; real visitors are split
 // across active versions weighted toward whichever converts better. Shows
-// each active version's real traffic share, times shown, and conversions.
+// each active version's real traffic share, times shown, and conversions —
+// all read straight from deployed_variants + variant_events per
+// docs/contracts/VisionProVariant.md.
 import { useEffect, useState } from "react";
 import { getSupabase } from "../lib/supabase";
-import {
-  ARCHETYPES, C, DEFAULT_SECTION_ORDER, DEPLOY_VARIANT_ENDPOINT, glass,
-  generateAndSelfCheck, mapJourneyRows, seedCopySelectionsFromJourney,
-} from "../lib/workspace-shared";
+import { ARCHETYPES, DEFAULT_SECTION_ORDER, DEPLOY_VARIANT_ENDPOINT, generateAndSelfCheck, mapJourneyRows, seedCopySelectionsFromJourney } from "../lib/workspace-shared";
 
 type AuditRow = { id: string; domain: string; raw_html: string | null; target_archetype: string | null };
 type ActiveVariant = { id: string; traffic_weight: number | null; deployed_at: string };
@@ -22,8 +21,12 @@ export default function VisionPro({ auditId }: { auditId: string }) {
 
   const [activeVariants, setActiveVariants] = useState<ActiveVariant[]>([]);
   const [eventCounts, setEventCounts] = useState<Record<string, { serves: number; converts: number }>>({});
+  const [detailFor, setDetailFor] = useState<string | null>(null);
+  const [rollingBackId, setRollingBackId] = useState<string | null>(null);
+  const [rollbackError, setRollbackError] = useState<string | null>(null);
 
   const [archetype, setArchetype] = useState<string>("");
+  const [showAddPanel, setShowAddPanel] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
   const [generatedHtml, setGeneratedHtml] = useState<string | null>(null);
@@ -107,7 +110,7 @@ export default function VisionPro({ auditId }: { auditId: string }) {
       });
       const json = await response.json();
       if (!response.ok || json.error) setAddError(json.message || "Couldn't add this as a live test variant. Try again.");
-      else { setGeneratedHtml(null); await refreshActiveVariants(); }
+      else { setGeneratedHtml(null); setShowAddPanel(false); await refreshActiveVariants(); }
     } catch (err) {
       setAddError(err instanceof Error ? err.message : "Couldn't reach the deploy service.");
     } finally {
@@ -115,98 +118,125 @@ export default function VisionPro({ auditId }: { auditId: string }) {
     }
   };
 
+  const handleRollbackVariant = async (variantId: string) => {
+    setRollingBackId(variantId);
+    setRollbackError(null);
+    try {
+      const supabase = getSupabase();
+      const { error } = await supabase.from("deployed_variants").update({ is_active: false }).eq("id", variantId);
+      if (error) throw new Error(error.message);
+      await refreshActiveVariants();
+    } catch (err) {
+      setRollbackError(err instanceof Error ? err.message : "Couldn't roll back this version.");
+    } finally {
+      setRollingBackId(null);
+    }
+  };
+
   if (loading) {
-    return (
-      <div style={{ display: "flex", justifyContent: "center", padding: "80px 28px" }}>
-        <div style={{ width: 40, height: 40, borderRadius: "50%", border: "4px solid rgba(20,140,89,0.2)", borderTop: `4px solid ${C.emerald}`, animation: "spin 0.8s linear infinite" }} />
-      </div>
-    );
+    return <div style={{ display: "flex", justifyContent: "center", padding: "80px 0" }}><div className="ws-spinner" /></div>;
   }
 
   return (
-    <div style={{ maxWidth: 1120, margin: "0 auto", padding: "8px 28px 40px" }}>
-      <h1 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 26, fontWeight: 700, color: C.navy, letterSpacing: "-0.5px", margin: "0 0 4px" }}>
-        Vision{" "}<span style={{ background: "linear-gradient(90deg,#186132,#14D571)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Pro</span>
-      </h1>
-      <p style={{ fontSize: 14, color: C.muted, margin: "0 0 20px" }}>Run more than one version live at once — real visitors split across them, weighted toward whichever actually converts.</p>
+    <>
+      <h2>Vision <span className="grad-text">Pro</span></h2>
+      <p className="vp-sub">Real visitors, split live across every version you've deployed — weight shifts automatically toward whichever one actually converts.</p>
 
-      {loadError && (
-        <div style={{ borderRadius: 12, padding: "16px 20px", background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.15)", fontSize: 13, color: "#991B1B", marginBottom: 16 }}>{loadError}</div>
+      {loadError && <div className="ws-error" style={{ marginBottom: 16 }}>{loadError}</div>}
+      {rollbackError && <div className="ws-error" style={{ marginBottom: 16 }}>{rollbackError}</div>}
+
+      {!isLive ? (
+        <div className="ws-empty">
+          <div className="t">Nothing live yet</div>
+          <div className="d">Deploy a rebuild from Conversion Blueprint first. Once one version is live, come back here to add a second (or further) version to test alongside it.</div>
+        </div>
+      ) : (
+        <>
+          <div className="vp-bar">
+            {activeVariants.map((v, i) => {
+              const weightPct = Math.round((v.traffic_weight ?? 1 / activeVariants.length) * 100);
+              return (
+                <div
+                  key={v.id}
+                  className={`vp-seg${i > 0 ? " v2" : ""}`}
+                  style={{ width: `${weightPct}%`, background: i === 0 ? "linear-gradient(100deg,var(--mint),#8fe6b8)" : "var(--violet-deep)" }}
+                >
+                  <span className="nm">Version {i + 1}</span>
+                  <span className="pct">{weightPct}%</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="vp-rows">
+            {activeVariants.map((v, i) => {
+              const counts = eventCounts[v.id] ?? { serves: 0, converts: 0 };
+              const rate = counts.serves > 0 ? ((counts.converts / counts.serves) * 100).toFixed(1) : "0.0";
+              const deployedLabel = new Date(v.deployed_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+              return (
+                <div className="vp-row" key={v.id}>
+                  <div className="vp-row-main">
+                    <b>Version {i + 1}</b>
+                    <span className="vp-row-stat">{counts.serves} served · {counts.converts} converted · {rate}% · deployed {deployedLabel}</span>
+                  </div>
+                  <div className="vp-row-actions">
+                    <button className="vp-btn" onClick={() => setDetailFor(detailFor === v.id ? null : v.id)}>{detailFor === v.id ? "Hide detail" : "View detail"}</button>
+                    {activeVariants.length > 1 && (
+                      <button className="vp-btn danger" disabled={rollingBackId === v.id} onClick={() => handleRollbackVariant(v.id)}>
+                        {rollingBackId === v.id ? "Rolling back…" : "Roll back"}
+                      </button>
+                    )}
+                  </div>
+                  {detailFor === v.id && (
+                    <div className="vp-detail">id: {v.id} · traffic_weight: {v.traffic_weight ?? "—"} · deployed_at: {v.deployed_at}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
-      <div style={{ ...glass, borderRadius: 16, padding: "24px 28px", marginBottom: 16 }}>
-        {!isLive ? (
-          <div>
-            <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 14, fontWeight: 700, color: C.navy, marginBottom: 6 }}>Nothing live yet</div>
-            <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6 }}>
-              Deploy a rebuild from Conversion Blueprint first. Once one version is live, come back here to add a second (or further) version to test alongside it.
-            </div>
-          </div>
-        ) : (
-          <>
-            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.dim, marginBottom: 12 }}>
-              Live traffic split{activeVariants.length > 1 ? ` — ${activeVariants.length} versions` : ""}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {activeVariants.map((v, i) => {
-                const counts = eventCounts[v.id] ?? { serves: 0, converts: 0 };
-                const weightPct = Math.round((v.traffic_weight ?? 1 / activeVariants.length) * 100);
-                return (
-                  <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 14px", borderRadius: 10, background: "rgba(255,255,255,0.6)", border: `1px solid ${C.border}` }}>
-                    <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 12.5, fontWeight: 700, color: C.navy, minWidth: 76 }}>Version {i + 1}</div>
-                    <div style={{ flex: 1, height: 6, borderRadius: 3, background: "rgba(0,0,0,0.06)", overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${weightPct}%`, background: "linear-gradient(90deg,#186132,#14D571)" }} />
-                    </div>
-                    <div style={{ fontSize: 12, color: C.muted, minWidth: 40, textAlign: "right" }}>{weightPct}%</div>
-                    <div style={{ fontSize: 11.5, color: C.muted, minWidth: 130, textAlign: "right" }}>{counts.serves} shown · {counts.converts} converted</div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
-      </div>
+      {isLive && auditData?.raw_html && !showAddPanel && (
+        <button className="gen-btn" style={{ marginTop: 16 }} onClick={() => setShowAddPanel(true)}>+ Add another version to this test</button>
+      )}
 
-      {isLive && auditData?.raw_html && (
-        <div style={{ ...glass, borderRadius: 16, padding: "24px 28px" }}>
-          <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 14, fontWeight: 700, color: C.navy, marginBottom: 4 }}>Add a live test variant</div>
-          <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 16, lineHeight: 1.6 }}>Generate another story direction and run it alongside what's live now — traffic is split and weighted automatically as real visits and conversions come in.</div>
+      {isLive && auditData?.raw_html && showAddPanel && (
+        <div style={{ marginTop: 20, background: "var(--surface)", borderRadius: 16, padding: "22px 24px" }}>
+          <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 4 }}>Add a live test variant</div>
+          <p style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 16, lineHeight: 1.6 }}>Generate another story direction and run it alongside what's live now — traffic is split and weighted automatically as real visits and conversions come in.</p>
 
-          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.dim, marginBottom: 8 }}>Story direction</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+          <div className="wb-label" style={{ marginBottom: 8 }}>Story direction</div>
+          <div className="chip-group" style={{ marginBottom: 16 }}>
             {ARCHETYPES.map((a) => (
-              <button key={a} onClick={() => setArchetype(a)} style={{ padding: "6px 12px", borderRadius: 20, fontSize: 11.5, fontWeight: 600, cursor: "pointer", transition: "all 0.15s", background: archetype === a ? "linear-gradient(135deg,#186132,#14D571)" : "rgba(0,0,0,0.05)", color: archetype === a ? "#fff" : C.muted, border: "none" }}>{a}</button>
+              <button key={a} type="button" className={`chip${archetype === a ? " on" : ""}`} onClick={() => setArchetype(a)}>{a}</button>
             ))}
           </div>
 
           <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-            <button onClick={handleGenerateVariant} disabled={generating} style={{ padding: "9px 18px", borderRadius: 9, border: "none", background: generating ? "rgba(24,97,50,0.4)" : "linear-gradient(135deg,#186132,#14D571)", color: "#fff", fontSize: 12.5, fontWeight: 700, fontFamily: "'Unbounded',sans-serif", cursor: generating ? "default" : "pointer" }}>
-              {generating ? "Generating…" : generatedHtml ? "Regenerate" : "Generate"}
-            </button>
+            <button className="gen-btn" disabled={generating} onClick={handleGenerateVariant}>{generating ? "Generating…" : generatedHtml ? "Regenerate" : "Generate"}</button>
             {generatedHtml && (
-              <button onClick={handleAddLiveTestVariant} disabled={addingLiveTest} style={{ padding: "9px 18px", borderRadius: 9, border: "none", cursor: addingLiveTest ? "default" : "pointer", background: addingLiveTest ? "rgba(91,97,244,0.3)" : "rgba(91,97,244,0.12)", color: C.violet, fontSize: 12.5, fontWeight: 700 }}>
-                {addingLiveTest ? "Adding…" : "Add as live test variant"}
-              </button>
+              <button className="gen-btn ghost" disabled={addingLiveTest} onClick={handleAddLiveTestVariant}>{addingLiveTest ? "Adding…" : "Add as live test variant"}</button>
             )}
           </div>
 
-          {genError && <div style={{ fontSize: 12, color: "#DC2626", marginBottom: 10 }}>{genError}</div>}
-          {addError && <div style={{ fontSize: 12, color: "#DC2626", marginBottom: 10 }}>{addError}</div>}
+          {genError && <div className="ws-error" style={{ marginBottom: 10 }}>{genError}</div>}
+          {addError && <div className="ws-error" style={{ marginBottom: 10 }}>{addError}</div>}
 
           {generating && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 0" }}>
-              <div style={{ width: 20, height: 20, borderRadius: "50%", border: "3px solid rgba(20,140,89,0.15)", borderTopColor: C.emerald, animation: "spin 0.8s linear infinite" }} />
-              <span style={{ fontSize: 12.5, color: C.navy }}>Generating and self-checking the rebuild…</span>
+              <div className="ws-spinner" style={{ width: 20, height: 20 }} />
+              <span style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>Generating and self-checking the rebuild…</span>
             </div>
           )}
 
           {generatedHtml && !generating && (
-            <div style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${C.border}`, marginTop: 6 }}>
+            <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid var(--line)", marginTop: 6 }}>
               <iframe title="Vision Pro variant preview" srcDoc={generatedHtml} sandbox="allow-same-origin allow-scripts" style={{ width: "100%", height: 420, border: "none", display: "block" }} />
             </div>
           )}
         </div>
       )}
-    </div>
+    </>
   );
 }

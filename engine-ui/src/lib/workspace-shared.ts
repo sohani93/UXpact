@@ -7,25 +7,32 @@
 import { getSupabase } from "./supabase";
 import type { JourneyBreak } from "./ui-types";
 
+// Dark workspace palette — matches the CSS custom properties defined in
+// styles/workspace-dark.css 1:1 (kept here too as plain hex/rgba strings for
+// the handful of spots, like inline SVG stroke attrs, that need a literal
+// value rather than a var()). Per ADR 002 this is the mockup's palette, not
+// spec v3's light "Design system" list.
 export const C = {
-  bg: "#F9F9F9",
-  navy: "#0B1C48",
-  forest: "#186132",
-  emerald: "#148C59",
+  bg: "#060509",
+  navy: "#F3F1FA", // primary ink on dark canvas — name kept for call-site compat
+  forest: "#1F8C4C",
+  emerald: "#14D571",
   mint: "#14D571",
-  violet: "#5B61F4",
-  muted: "#6B7280",
-  dim: "#9CA3AF",
-  border: "rgba(0,0,0,0.07)",
+  violet: "#7B7FFF",
+  violetDeep: "#4A3FBF",
+  muted: "#B7B2CC",
+  dim: "#79749A",
+  border: "rgba(255,255,255,0.09)",
+  danger: "#D9564C",
 } as const;
 
+// Legacy light "glass" panel style — superseded by the workspace-dark.css
+// classes for the five workspace routes, kept only in case a call site still
+// spreads it before this rebuild is fully ported.
 export const glass = {
-  background: "rgba(255,255,255,0.5)",
-  backdropFilter: "blur(24px)",
-  WebkitBackdropFilter: "blur(24px)",
+  background: "var(--surface)",
   borderRadius: 14,
-  border: "1px solid rgba(255,255,255,0.65)",
-  boxShadow: "0 4px 20px rgba(0,0,0,0.03), 0 1px 3px rgba(0,0,0,0.02), inset 0 1px 0 rgba(255,255,255,0.7)",
+  border: "1px solid var(--line)",
 } as const;
 
 export const KEYFRAMES = `
@@ -35,11 +42,14 @@ export const KEYFRAMES = `
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn 0.4s ease both}
 .fade-up{animation:fadeUp 0.4s ease both}
-*:focus{outline:none}
 `;
 
+// Same Google Fonts import the approved mockup uses: Unbounded (headings /
+// CTAs), Space Grotesk (body), Space Mono (labels, mono UI text — URLs,
+// eyebrows, embed snippets). Loaded only inside WorkspaceShell so it never
+// touches EngineInput/LoadingState's existing light-theme pages.
 export const FONT_LINK_HREF =
-  "https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;660;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap";
+  "https://fonts.googleapis.com/css2?family=Unbounded:wght@500;680;700&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap";
 
 export const JOURNEY_STAGE_ORDER = ["arrival", "understanding", "trust-building", "decision", "action"] as const;
 export const JOURNEY_STAGE_LABELS: Record<string, string> = {

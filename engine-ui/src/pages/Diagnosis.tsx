@@ -1,14 +1,18 @@
-// ─── DIAGNOSIS ──────────────────────────────────────────────────────────
-// Prose-only story diagnosis for the submitted page. No numeric score, no
-// card carousel, no badge — per docs/contracts/DiagnosisResult.md the
-// contract itself carries none. Reads directly from Supabase by audit_id:
-// the `audits` row for narrative_verdict / revenue_leak_estimate /
-// current_archetype / target_archetype, and `archetype_consistency_scores`
-// rows for the journey breakdown, shown in journey-stage order.
+// ─── DIAGNOSIS ("Story" in the approved mockup) ─────────────────────────
+// Reads directly from Supabase by audit_id: the `audits` row for
+// narrative_verdict / revenue_leak_estimate / current_archetype /
+// target_archetype, and `archetype_consistency_scores` rows for the real
+// journey breakdown, rendered in journey-stage order as the mockup's
+// .di-row list. Per docs/adr/002-mockup-overrides-spec-diagnosis-visuals.md
+// the archetype carousel and conversion-benchmark chart are part of the
+// approved visual reference; the benchmark chart has no real data source
+// yet, so it is relabeled here as an illustrative placeholder — everything
+// else on this page is real, audited data.
 import { useEffect, useState } from "react";
 import { getSupabase } from "../lib/supabase";
-import { C, glass, JOURNEY_STAGE_LABELS, mapJourneyRows, sortByJourneyStage } from "../lib/workspace-shared";
+import { JOURNEY_STAGE_LABELS, JOURNEY_STAGE_ORDER, mapJourneyRows, sortByJourneyStage } from "../lib/workspace-shared";
 import type { JourneyBreak } from "../lib/ui-types";
+import ArchetypeCarousel from "../components/ArchetypeCarousel";
 
 type AuditRow = {
   id: string;
@@ -18,6 +22,27 @@ type AuditRow = {
   current_archetype: string | null;
   target_archetype: string | null;
 };
+
+function ensureSentence(s: string): string {
+  const t = s.trim();
+  if (!t) return t;
+  return /[.!?]$/.test(t) ? t : `${t}.`;
+}
+
+// Turns one real journey break into the readable prose the mockup's .di-row
+// paragraph expects, combining whatsHappening / whatShouldHappen / reason —
+// this IS the real journey breakdown, not the mockup's two demo rows.
+function journeyBreakProse(jb: JourneyBreak): string {
+  const parts: string[] = [];
+  if (jb.whatsHappening) parts.push(ensureSentence(jb.whatsHappening));
+  if (jb.whatShouldHappen) {
+    const should = jb.whatShouldHappen.trim();
+    const lower = should.charAt(0).toLowerCase() + should.slice(1);
+    parts.push(ensureSentence(`Instead, it should ${lower}`));
+  }
+  if (jb.reason) parts.push(ensureSentence(jb.reason));
+  return parts.join(" ");
+}
 
 export default function Diagnosis({ auditId }: { auditId: string }) {
   const [audit, setAudit] = useState<AuditRow | null>(null);
@@ -53,95 +78,79 @@ export default function Diagnosis({ auditId }: { auditId: string }) {
   }, [auditId]);
 
   if (loading) {
-    return (
-      <div style={{ display: "flex", justifyContent: "center", padding: "80px 28px" }}>
-        <div style={{ width: 40, height: 40, borderRadius: "50%", border: "4px solid rgba(20,140,89,0.2)", borderTop: `4px solid ${C.emerald}`, animation: "spin 0.8s linear infinite" }} />
-      </div>
-    );
+    return <div style={{ display: "flex", justifyContent: "center", padding: "80px 0" }}><div className="ws-spinner" /></div>;
   }
 
   if (loadError || !audit) {
-    return (
-      <div style={{ maxWidth: 1120, margin: "0 auto", padding: "28px 28px 8px" }}>
-        <div style={{ ...glass, borderRadius: 16, padding: "24px 26px", background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.15)" }}>
-          <p style={{ fontSize: 13, color: "#991B1B", margin: 0, lineHeight: 1.6 }}>{loadError ?? "This audit couldn't be found."}</p>
-        </div>
-      </div>
-    );
+    return <div className="ws-error">{loadError ?? "This audit couldn't be found."}</div>;
   }
 
   const domain = audit.domain || "yoursite.com";
   const sortedBreaks = sortByJourneyStage(journeyBreaks);
+  const stagesWithBreaks = new Set(sortedBreaks.map((jb) => jb.journeyStage));
+
+  if (!audit.narrative_verdict) {
+    return (
+      <div className="ws-error">
+        The AI diagnosis didn't complete for this run — no narrative verdict, journey breakdown, or revenue estimate is available. Re-run the audit to try again.
+      </div>
+    );
+  }
 
   return (
-    <div style={{ maxWidth: 1120, margin: "0 auto", padding: "28px 28px 8px" }}>
-      <h1 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 26, fontWeight: 700, color: C.navy, letterSpacing: "-0.5px", margin: "0 0 4px" }}>
-        Your{" "}<span style={{ background: "linear-gradient(90deg,#186132,#14D571)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Diagnosis</span>
-      </h1>
-      <p style={{ fontSize: 14, color: C.muted, margin: "0 0 20px" }}>What actually happens when someone visits {domain}.</p>
+    <>
+      <div className="panel-eyebrow">{domain}, right now</div>
+      <div className="shift-headline">
+        <span className="arc from">{audit.current_archetype ? `The ${audit.current_archetype}` : "Unclear story"}</span>
+        <span className="arrow">→</span>
+        <span className="arc to">{audit.target_archetype ? `The ${audit.target_archetype}` : "—"}</span>
+      </div>
+      <p className="verdict-short">{audit.narrative_verdict}</p>
 
-      {!audit.narrative_verdict ? (
-        <div style={{ ...glass, borderRadius: 16, padding: "24px 26px" }}>
-          <div style={{ borderRadius: 12, padding: "20px 24px", background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.15)" }}>
-            <p style={{ fontSize: 13, color: "#991B1B", margin: 0, lineHeight: 1.6 }}>
-              The AI diagnosis didn't complete for this run — no narrative verdict, journey breakdown, or revenue estimate is available. Re-run the audit to try again.
-            </p>
+      <div className="diagnosis-insights">
+        {sortedBreaks.map((jb, i) => (
+          <div key={i} className={`di-row${i === 0 ? " warn" : ""}`}>
+            <span className="di-tag">{JOURNEY_STAGE_LABELS[jb.journeyStage] ?? jb.journeyStage}{jb.element ? ` — ${jb.element}` : ""}</span>
+            <p>{journeyBreakProse(jb)}</p>
           </div>
+        ))}
+
+        {/* Illustrative benchmark chart — per ADR 002 this stays visually,
+            but has no real per-site data source yet, so it is explicitly
+            labeled as an example rather than a measured number. */}
+        <div className="di-row">
+          <span className="di-tag">Illustrative example — not measured for {domain}</span>
+          <div className="conv-chart">
+            <div className="conv-track">
+              <div className="conv-range" style={{ left: "63%", width: "23%" }} />
+              <div className="conv-marker" style={{ left: "35%" }} />
+            </div>
+            <div className="conv-legend">
+              <span className="cl-you"><i />Example hero page — <b>2.1%</b></span>
+              <span className="cl-bench"><i />Example category benchmark — <b>3.8–5.2%</b></span>
+            </div>
+          </div>
+          <p>
+            A sample of what a hero-to-signup conversion gap can look like for this kind of page — not a number UXpact has measured for {domain}. There's no live
+            data source computing this yet; treat it as a shape of the pattern, not a real reading.
+          </p>
         </div>
-      ) : (
-        <>
-          {/* Narrative verdict — always shown first, prose only. */}
-          <div style={{ ...glass, borderRadius: 16, padding: "28px 28px 24px", marginBottom: 16 }}>
-            <div style={{ borderRadius: 12, padding: "24px 26px", background: "linear-gradient(135deg,#186132 0%,#148C59 60%,#14D571 100%)" }}>
-              <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: "rgba(255,255,255,0.6)", marginBottom: 10 }}>The verdict</div>
-              <p style={{ fontSize: 16, fontWeight: 700, color: "#fff", lineHeight: 1.55, margin: 0, letterSpacing: "-0.2px" }}>{audit.narrative_verdict}</p>
-            </div>
-          </div>
+      </div>
 
-          {/* Journey breakdown, in journey-stage order. */}
-          {sortedBreaks.length > 0 && (
-            <div style={{ ...glass, borderRadius: 16, padding: "26px 28px", marginBottom: 16 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: C.dim, marginBottom: 4 }}>The journey, stage by stage</div>
-              {audit.current_archetype && audit.target_archetype && (
-                <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 18 }}>
-                  Read through the lens of moving from how {domain} presents today (<span style={{ fontWeight: 700, color: C.navy }}>{audit.current_archetype}</span>) toward how it should for this goal (<span style={{ fontWeight: 700, color: C.navy }}>{audit.target_archetype}</span>).
-                </div>
-              )}
-              <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-                {sortedBreaks.map((jb, i) => (
-                  <div key={i} style={{ display: "flex", gap: 14, alignItems: "flex-start", paddingBottom: i < sortedBreaks.length - 1 ? 20 : 0, borderBottom: i < sortedBreaks.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                    <div style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(91,97,244,0.12)", color: C.violet, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>{i + 1}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.violet }}>{JOURNEY_STAGE_LABELS[jb.journeyStage] ?? jb.journeyStage}</span>
-                        {jb.element && <span style={{ fontSize: 12.5, fontWeight: 660, color: C.navy, fontFamily: "'Unbounded', sans-serif" }}>{jb.element}</span>}
-                      </div>
-                      <p style={{ fontSize: 13.5, color: "#374151", lineHeight: 1.65, margin: "0 0 6px" }}>{jb.whatsHappening}</p>
-                      <p style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6, margin: "0 0 6px" }}><span style={{ fontWeight: 660, color: C.navy }}>Should instead: </span>{jb.whatShouldHappen}</p>
-                      {jb.reason && (
-                        <p style={{ fontSize: 12, color: C.dim, lineHeight: 1.6, margin: 0 }}><span style={{ fontWeight: 660 }}>Why: </span>{jb.reason}</p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+      <div className="carousel-label">The six story archetypes — swipe to browse</div>
+      <div className="story-lower-grid">
+        <ArchetypeCarousel currentArchetype={audit.current_archetype} targetArchetype={audit.target_archetype} />
+        <div className="leak-card">
+          <span className="leak-fig">{audit.revenue_leak_estimate || "Not estimated"}</span>
+          <span className="leak-text">What this gap is costing {domain} in lost conversions.</span>
+        </div>
+      </div>
 
-          {/* Revenue leak estimate, grounded in the breaks above. */}
-          {audit.revenue_leak_estimate && (
-            <div style={{ ...glass, borderRadius: 16, padding: "24px 28px", marginBottom: 16 }}>
-              <h2 style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 17, fontWeight: 700, color: C.navy, margin: "0 0 4px" }}>Revenue Leak</h2>
-              <p style={{ fontSize: 13, color: C.muted, margin: "0 0 10px" }}>
-                {sortedBreaks.length > 0
-                  ? `Grounded in the ${sortedBreaks.length} journey break${sortedBreaks.length === 1 ? "" : "s"} found above — not a generic estimate.`
-                  : "Grounded in the specific breaks found in this diagnosis, not a generic estimate."}
-              </p>
-              <p style={{ fontSize: 15, fontWeight: 700, color: C.forest, margin: 0 }}>{audit.revenue_leak_estimate} <span style={{ fontWeight: 500, color: C.muted, fontSize: 13 }}>estimated at risk</span></p>
-            </div>
-          )}
-        </>
-      )}
-    </div>
+      <div className="signal-dots" title="Arrival, Understanding, Trust-building, Decision, Action — where the story breaks">
+        {JOURNEY_STAGE_ORDER.map((stage) => (
+          <span key={stage} className={`jdot${stagesWithBreaks.has(stage) ? " on" : ""}`} />
+        ))}
+      </div>
+    </>
   );
 }
