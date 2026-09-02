@@ -1,17 +1,14 @@
 import { useEffect, useState } from "react";
 import EngineInput from "./components/EngineInput";
 import LoadingState from "./components/LoadingState";
-import Workspace from "./pages/Workspace";
+import WorkspaceShell from "./pages/WorkspaceShell";
+import { isDestination } from "./lib/destinations";
+import { navigateTo } from "./lib/navigate";
 import type { AuditData, AuditRequestFormData } from "./lib/ui-types";
 
 type AuditMode = "input" | "loading";
 
 function getPath() { return window.location.pathname; }
-
-function navigateTo(path: string) {
-  window.history.pushState({}, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
 
 function App() {
   const [path, setPath] = useState(getPath());
@@ -21,15 +18,29 @@ function App() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  // One continuous workspace per site — Diagnosis, Conversion Blueprint, and
-  // UX Pulse all live as sections of the same page, not separate routes.
-  // Old links (/report/:id, /blueprint/:id, /vision/:id) redirect here rather than 404.
-  const workspaceMatch = path.match(/^\/(?:workspace|report|blueprint|reaudit|plugins|vision)\/(.+)$/);
+  // Five real top-level routes sharing one audit_id, switched via the
+  // persistent bottom nav — never scrolled to, never nested inside one
+  // another: /workspace/:auditId/(diagnosis|blueprint|vision-pro|pulse|premium).
+  const workspaceMatch = path.match(/^\/workspace\/([^/]+)\/([^/]+)\/?$/);
   if (workspaceMatch) {
-    const auditId = workspaceMatch[1];
-    if (!path.startsWith("/workspace/")) window.history.replaceState({}, "", `/workspace/${auditId}`);
-    return <Workspace auditId={auditId} />;
+    const [, auditId, dest] = workspaceMatch;
+    if (!isDestination(dest)) {
+      window.history.replaceState({}, "", `/workspace/${auditId}/diagnosis`);
+      return <WorkspaceShell auditId={auditId} destination="diagnosis" />;
+    }
+    return <WorkspaceShell auditId={auditId} destination={dest} />;
   }
+
+  // Old links — /workspace/:id, /report/:id, /blueprint/:id, /reaudit/:id,
+  // /plugins/:id, /vision/:id — redirect to the new Diagnosis route for
+  // that id rather than 404.
+  const oldMatch = path.match(/^\/(?:workspace|report|blueprint|reaudit|plugins|vision)\/([^/]+)\/?$/);
+  if (oldMatch) {
+    const auditId = oldMatch[1];
+    window.history.replaceState({}, "", `/workspace/${auditId}/diagnosis`);
+    return <WorkspaceShell auditId={auditId} destination="diagnosis" />;
+  }
+
   return <AuditPage />;
 }
 
@@ -72,7 +83,7 @@ function AuditPage() {
 
   const handleAccess = () => {
     if (!pendingData) return;
-    navigateTo(`/workspace/${pendingData.auditId}`);
+    navigateTo(`/workspace/${pendingData.auditId}/diagnosis`);
   };
 
   return (
