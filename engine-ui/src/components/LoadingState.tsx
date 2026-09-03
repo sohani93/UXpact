@@ -7,7 +7,7 @@ import Pill from "./Pill";
 import CompactResults from "./CompactResults";
 import type { AuditData } from "../lib/ui-types";
 
-const C = { bg: "#F9F9F9", forest: "#186132", mint: "#14D571", emerald: "#148C59", navy: "#0B1C48", muted: "#6B7280", dim: "#9CA3AF" };
+const C = { bg: "#060509", forest: "#1F8C4C", mint: "#14D571", emerald: "#14D571", navy: "#F3F1FA", muted: "#B7B2CC", dim: "#79749A" };
 
 const STATUS_MSGS = [
   "Mapping conversion pathways...",
@@ -21,12 +21,12 @@ const STATUS_MSGS = [
 ];
 
 const glass = {
-  background: "rgba(255,255,255,0.5)",
+  background: "rgba(255,255,255,0.045)",
   backdropFilter: "blur(24px)",
   WebkitBackdropFilter: "blur(24px)",
   borderRadius: 14,
-  border: "1px solid rgba(255,255,255,0.65)",
-  boxShadow: "0 4px 20px rgba(0,0,0,0.03), 0 1px 3px rgba(0,0,0,0.02), inset 0 1px 0 rgba(255,255,255,0.7)",
+  border: "1px solid rgba(255,255,255,0.09)",
+  boxShadow: "0 4px 20px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04)",
 };
 
 const KEYFRAMES = `
@@ -135,7 +135,7 @@ export default function LoadingState({ url, goals, auditData, onAccess, onError 
               <div style={{ fontSize: 12.5, fontWeight: 500, color: C.emerald, opacity: lblOp, transition: "opacity 0.3s ease", minHeight: 18, textAlign: "center" }}>
                 {STATUS_MSGS[lblIdx]}
               </div>
-              <div style={{ width: "100%", maxWidth: 260, height: 3, borderRadius: 2, background: "rgba(0,0,0,0.06)", overflow: "hidden", margin: "0 auto" }}>
+              <div style={{ width: "100%", maxWidth: 260, height: 3, borderRadius: 2, background: "rgba(255,255,255,0.09)", overflow: "hidden", margin: "0 auto" }}>
                 <div ref={barRef} style={{ height: "100%", borderRadius: 2, width: "0%", background: `linear-gradient(90deg,${C.forest},${C.mint})`, boxShadow: "0 0 6px rgba(20,213,113,0.25)" }} />
               </div>
               <div style={{ fontSize: 11, color: C.dim, opacity: hangTight ? 1 : 0, transition: "opacity 0.8s ease", marginTop: 4, textAlign: "center" }}>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { JourneyBreak, JourneyStage } from "../lib/ui-types";
 
-const C = { navy: "#0B1C48", forest: "#186132", mint: "#14D571", violet: "#5B61F4", muted: "#6B7280", dim: "#9CA3AF" };
+const C = { navy: "#F3F1FA", forest: "#1F8C4C", mint: "#14D571", violet: "#7B7FFF", muted: "#B7B2CC", dim: "#79749A" };
 
 const JOURNEY_STAGE_LABELS: Record<JourneyStage, string> = {
   arrival: "Arrival",
@@ -22,10 +22,10 @@ function JourneyStrip({ journeyBreaks }: { journeyBreaks: JourneyBreak[] }) {
           return (
             <div key={stage} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                <div style={{ width: broken ? 10 : 7, height: broken ? 10 : 7, borderRadius: "50%", background: broken ? C.violet : "rgba(11,28,72,0.15)", transition: "all 0.2s" }} />
+                <div style={{ width: broken ? 10 : 7, height: broken ? 10 : 7, borderRadius: "50%", background: broken ? C.violet : "rgba(255,255,255,0.14)", transition: "all 0.2s" }} />
                 <span style={{ fontSize: 9, fontWeight: broken ? 700 : 500, color: broken ? C.violet : C.dim, whiteSpace: "nowrap" }}>{JOURNEY_STAGE_LABELS[stage]}</span>
               </div>
-              {i < JOURNEY_STAGE_ORDER.length - 1 && <div style={{ width: 14, height: 1, background: "rgba(11,28,72,0.1)" }} />}
+              {i < JOURNEY_STAGE_ORDER.length - 1 && <div style={{ width: 14, height: 1, background: "rgba(255,255,255,0.09)" }} />}
             </div>
           );
         })}
@@ -55,8 +55,8 @@ export default function CompactResults({ narrativeVerdict, revenueLeakEstimate, 
           <p style={{ fontSize: 14.5, fontWeight: 600, color: "#fff", lineHeight: 1.6, margin: 0 }}>{narrativeVerdict}</p>
         </div>
       ) : (
-        <div className="fade-up" style={{ animationDelay: "0s", width: "100%", maxWidth: 520, borderRadius: 12, padding: "16px 20px", background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.15)" }}>
-          <p style={{ fontSize: 13, color: "#991B1B", lineHeight: 1.5, margin: 0 }}>{diagnosisError ?? "Diagnosis unavailable for this run."}</p>
+        <div className="fade-up" style={{ animationDelay: "0s", width: "100%", maxWidth: 520, borderRadius: 12, padding: "16px 20px", background: "rgba(217,86,76,0.1)", border: "1px solid rgba(217,86,76,0.3)" }}>
+          <p style={{ fontSize: 13, color: "#FF9B90", lineHeight: 1.5, margin: 0 }}>{diagnosisError ?? "Diagnosis unavailable for this run."}</p>
         </div>
       )}
 
@@ -73,7 +73,7 @@ export default function CompactResults({ narrativeVerdict, revenueLeakEstimate, 
         <div className="fade-up" style={{ animationDelay: "0.35s", width: "100%", maxWidth: 520 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 10 }}>Where the journey breaks down</div>
           {breaks.slice(0, 3).map((jb, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 14px", borderRadius: 8, background: "rgba(255,255,255,0.6)", border: "1px solid rgba(0,0,0,0.04)", marginBottom: 6, animation: `fadeUp 0.3s ease ${0.4 + i * 0.1}s both` }}>
+            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 14px", borderRadius: 8, background: "rgba(255,255,255,0.045)", border: "1px solid rgba(255,255,255,0.09)", marginBottom: 6, animation: `fadeUp 0.3s ease ${0.4 + i * 0.1}s both` }}>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.violet, marginTop: 4, flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.violet }}>{JOURNEY_STAGE_LABELS[jb.journeyStage]}</span>

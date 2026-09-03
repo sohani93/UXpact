@@ -105,6 +105,7 @@ export default function Blueprint({ auditId }: { auditId: string }) {
   const [generating, setGenerating] = useState(false);
   const [genStepIndex, setGenStepIndex] = useState(0);
   const [generatedHtml, setGeneratedHtml] = useState<string | null>(null);
+  const [generatedArchetype, setGeneratedArchetype] = useState<string | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
   const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
   const [deploying, setDeploying] = useState(false);
@@ -208,6 +209,7 @@ export default function Blueprint({ auditId }: { auditId: string }) {
       const result = await generateAndSelfCheck({ auditId, archetype, sectionOrder, copySelections, rawHtml: auditData.raw_html });
       if ("error" in result) { setGenError(result.error); setGeneratedHtml(null); return; }
       setGeneratedHtml(result.html);
+      setGeneratedArchetype(archetype);
       setActiveVersionId(null);
     } catch (err) {
       setGenError(err instanceof Error ? err.message : "Couldn't reach the Vision service.");
@@ -228,6 +230,7 @@ export default function Blueprint({ auditId }: { auditId: string }) {
 
   const handleSelectVersion = (v: any) => {
     setGeneratedHtml(v.html);
+    setGeneratedArchetype(v.archetype || null);
     setActiveVersionId(v.id);
     setGenError(null);
     setArchetype(v.archetype || archetype);
@@ -381,6 +384,12 @@ export default function Blueprint({ auditId }: { auditId: string }) {
             {generating ? "Generating…" : generatedHtml ? "Regenerate" : "Generate"}
           </button>
         </div>
+
+        {generatedHtml && generatedArchetype && archetype !== generatedArchetype && (
+          <div className="canvas-hint" style={{ marginTop: -8, marginBottom: 14, color: "var(--violet)" }}>
+            You picked {archetype} — the preview below is still {generatedArchetype}. Click Regenerate to rebuild it for {archetype}.
+          </div>
+        )}
 
         {journeyBreaks.length > 0 && (
           <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 10 }}>
