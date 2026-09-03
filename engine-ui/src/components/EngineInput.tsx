@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import Nav from "./Nav";
+import Blobs from "./Blobs";
 import type { AuditRequestFormData } from "../lib/ui-types";
 
 const INDUSTRIES = [
@@ -102,16 +104,9 @@ export default function EngineInput({ onSubmit, initialForm }: EngineInputProps)
   return (
     <div style={{
       minHeight: "100vh", background: T.canvas, fontFamily: "'Space Grotesk', sans-serif", position: "relative", overflow: "hidden",
-      backgroundImage:
-        "radial-gradient(ellipse 900px 640px at 10% -8%, rgba(123,127,255,0.22), transparent 60%)," +
-        "radial-gradient(ellipse 700px 520px at 105% 22%, rgba(20,213,113,0.10), transparent 55%)," +
-        "radial-gradient(ellipse 1000px 760px at 45% 115%, rgba(74,63,191,0.28), transparent 62%)",
-      backgroundAttachment: "fixed",
     }}>
-      <nav style={{ maxWidth: 1120, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 28px", position: "relative", zIndex: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 7 }}><div style={{ width: 28, height: 28, borderRadius: 7, background: `linear-gradient(135deg, ${T.forest}, ${T.mint})`, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 8px rgba(20,140,89,0.2)" }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /><circle cx="12" cy="12" r="10" stroke="#fff" strokeWidth="2" /></svg></div><span style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 16, fontWeight: 700, color: "#fff" }}>UXpact</span></div>
-        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>{["Home", "Audits"].map((t) => (<span key={t} style={{ fontSize: 13, color: T.inkDim, fontWeight: 450, cursor: "pointer" }}>{t}</span>))}<span style={{ fontSize: 13, color: T.mint, fontWeight: 600, cursor: "pointer" }}>New Audit</span></div>
-      </nav>
+      <Blobs />
+      <Nav />
 
       <div style={{ maxWidth: 1060, margin: "0 auto", padding: "8px 28px 60px", position: "relative", zIndex: 10 }}>
         <div style={{ marginBottom: 24 }}><h1 style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 26, fontWeight: 700, color: "#fff", letterSpacing: "-0.5px", margin: "0 0 6px" }}>Configure Your <span style={{ background: `linear-gradient(90deg, ${T.forest}, ${T.mint})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Audit</span></h1><p style={{ fontSize: 14, color: T.inkSoft, margin: 0, fontWeight: 400 }}>Fill in the details below and we'll analyze your site instantly.</p></div>
