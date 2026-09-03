@@ -96,13 +96,25 @@ def get_top_level_blocks(soup: BeautifulSoup):
     return root, blocks
 
 
+def tag_zones(blocks) -> None:
+    # Exposes the same classification reorder_sections computes, as a
+    # data-uxpact-zone attribute on each top-level block, so a consumer
+    # (generate-vision) can split the returned document into per-section
+    # fragments without reimplementing this heuristic itself.
+    for b in blocks:
+        b["data-uxpact-zone"] = classify_zone(b)
+
+
 def reorder_sections(soup: BeautifulSoup, section_order):
     root, blocks = get_top_level_blocks(soup)
     if root is None or len(blocks) < 2:
+        if root is not None:
+            tag_zones(blocks)
         return  # nothing meaningful to reorder — leave document as-is
 
     order = section_order if section_order else ZONE_ORDER_FALLBACK
     classified = [(classify_zone(b), b) for b in blocks]
+    tag_zones(blocks)
 
     used = set()
     ordered = []
