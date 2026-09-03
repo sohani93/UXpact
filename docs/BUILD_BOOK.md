@@ -5,6 +5,59 @@ production, what changed, timestamp. Replaces the prior Build Log.
 
 ---
 
+## 2026-09-03 — Real-deploy bug pass: RLS gap, intake theme, archetype-chip clarity
+
+**What was built:** Sohani opened the actual Cloudflare Pages deploy and found
+real bugs no amount of code review had caught: Blueprint showed "No journey
+breaks pinned" against a real, already-verified-working Gemini diagnosis
+(audit `9306cd5e-90b9-4aa4-bada-d42985021106`, stripe.com), and the intake
+form at `/` was still the old light theme.
+
+**Root cause, confirmed not guessed:** `archetype_consistency_scores` and
+`site_snapshots` had RLS enabled (migration 009) but were missed from
+migration 010's anon SELECT grants — zero policies existed on either table.
+The anon-key frontend client's reads were silently blocked (RLS returns an
+empty result, not an error), even though `run-audit` had genuinely written
+4 real rows for that audit. `mcp__supabase__execute_sql` (elevated
+connection) showed the rows; a `pg_net` call using the real anon `apikey`/
+`Authorization` header against the PostgREST endpoint — the exact path the
+browser takes — returned nothing, proving the gap precisely.
+
+**How verified on real production:**
+- Applied migration `015_rls_journey_and_snapshots_read.sql` (anon SELECT on
+  both tables) via `apply_migration`.
+- Re-ran the identical anon-key PostgREST request against the existing
+  Stripe audit: now returns all 4 real rows.
+- Ran a **fresh** end-to-end audit (`https://www.notion.com`, new audit_id
+  `0ed14ffc-9dca-4a16-803d-ae2d1dad8fbf`) to confirm the fix isn't
+  retroactive-only: 3 real journey-break rows, readable via anon key,
+  immediately.
+
+**What changed:**
+- New migration: `supabase/migrations/015_rls_journey_and_snapshots_read.sql`.
+- Dark-theme restyle (logic untouched): `EngineInput.tsx`, `LoadingState.tsx`,
+  `Nav.tsx`, `Blobs.tsx`, `Pill.tsx`, `CompactResults.tsx` — several had
+  hardcoded dark-navy text that would have been invisible on a dark
+  background.
+- `Blueprint.tsx`: archetype-chip selection now shows an explicit note when
+  the visible preview no longer matches the selected direction, instead of
+  silently doing nothing (previous behavior) or faking an instant preview
+  (the static mockup demo's behavior, not backed by a real generation call).
+- Confirmed not a bug: the narrative verdict's tone was flagged as "hedgy"
+  by Sohani — checked byte-for-byte against the stored `audits.narrative_verdict`
+  row and it matches exactly. Real Gemini output, not something lost in
+  rendering. Tone is a prompt-tuning question, not a pipeline defect.
+
+**Not yet re-verified live in a real browser:** this sandbox's egress policy
+still blocks direct browser/curl access to the production Supabase host, so
+this fix is verified via the real anon-key REST path (network-equivalent to
+what the browser does) rather than an actual Playwright pass. Sohani is
+verifying visually via the Cloudflare preview deploy.
+
+**Timestamp:** 2026-09-03.
+
+---
+
 ## 2026-09-01/02 — Pre-build verification + AI provider switch
 
 **What was built:** Verified all four existing backend pieces (Diagnosis
