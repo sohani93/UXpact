@@ -1,16 +1,16 @@
 // ─── DIAGNOSIS ("Story" in the approved mockup) ─────────────────────────
 // Reads directly from Supabase by audit_id: the `audits` row for
 // narrative_verdict / revenue_leak_estimate / current_archetype /
-// target_archetype, and `archetype_consistency_scores` rows for the real
-// journey breakdown, rendered in journey-stage order as the mockup's
-// .di-row list. Per docs/adr/002-mockup-overrides-spec-diagnosis-visuals.md
-// the archetype carousel and conversion-benchmark chart are part of the
-// approved visual reference; the benchmark chart has no real data source
-// yet, so it is relabeled here as an illustrative placeholder — everything
-// else on this page is real, audited data.
+// target_archetype, and the first real journey break (by stage order) for
+// the "Why it's costing you" row. Structure matches the mockup exactly —
+// verdict-short paragraph, then exactly two .di-row entries ("Why it's
+// costing you" and "What we're reading"), never one row per journey break.
+// The full itemized breakdown (every break, pinned, with its fix and AI
+// prompt) already lives on Conversion Blueprint — Diagnosis is the
+// narrative summary layer, not a second copy of Blueprint's pin list.
 import { useEffect, useState } from "react";
 import { getSupabase } from "../lib/supabase";
-import { JOURNEY_STAGE_LABELS, JOURNEY_STAGE_ORDER, mapJourneyRows, sortByJourneyStage } from "../lib/workspace-shared";
+import { JOURNEY_STAGE_ORDER, mapJourneyRows, sortByJourneyStage } from "../lib/workspace-shared";
 import type { JourneyBreak } from "../lib/ui-types";
 import ArchetypeCarousel from "../components/ArchetypeCarousel";
 
@@ -29,17 +29,12 @@ function ensureSentence(s: string): string {
   return /[.!?]$/.test(t) ? t : `${t}.`;
 }
 
-// Turns one real journey break into the readable prose the mockup's .di-row
-// paragraph expects, combining whatsHappening / whatShouldHappen / reason —
-// this IS the real journey breakdown, not the mockup's two demo rows.
-function journeyBreakProse(jb: JourneyBreak): string {
+// One real, concrete example — the mockup's "Why it's costing you" row is a
+// single behavioral-consequence paragraph, not an instruction to fix it
+// (that's Blueprint's job). Built from the highest-priority real break.
+function whyItsCostingYouProse(jb: JourneyBreak): string {
   const parts: string[] = [];
   if (jb.whatsHappening) parts.push(ensureSentence(jb.whatsHappening));
-  if (jb.whatShouldHappen) {
-    const should = jb.whatShouldHappen.trim();
-    const lower = should.charAt(0).toLowerCase() + should.slice(1);
-    parts.push(ensureSentence(`Instead, it should ${lower}`));
-  }
   if (jb.reason) parts.push(ensureSentence(jb.reason));
   return parts.join(" ");
 }
@@ -87,6 +82,7 @@ export default function Diagnosis({ auditId }: { auditId: string }) {
 
   const domain = audit.domain || "yoursite.com";
   const sortedBreaks = sortByJourneyStage(journeyBreaks);
+  const topBreak = sortedBreaks[0] ?? null;
   const stagesWithBreaks = new Set(sortedBreaks.map((jb) => jb.journeyStage));
 
   if (!audit.narrative_verdict) {
@@ -108,31 +104,32 @@ export default function Diagnosis({ auditId }: { auditId: string }) {
       <p className="verdict-short">{audit.narrative_verdict}</p>
 
       <div className="diagnosis-insights">
-        {sortedBreaks.map((jb, i) => (
-          <div key={i} className={`di-row${i === 0 ? " warn" : ""}`}>
-            <span className="di-tag">{JOURNEY_STAGE_LABELS[jb.journeyStage] ?? jb.journeyStage}{jb.element ? ` — ${jb.element}` : ""}</span>
-            <p>{journeyBreakProse(jb)}</p>
+        {topBreak && (
+          <div className="di-row warn">
+            <span className="di-tag">Why it's costing you</span>
+            <p>{whyItsCostingYouProse(topBreak)}</p>
           </div>
-        ))}
+        )}
 
-        {/* Illustrative benchmark chart — per ADR 002 this stays visually,
-            but has no real per-site data source yet, so it is explicitly
-            labeled as an example rather than a measured number. */}
+        {/* Illustrative benchmark chart, styled and worded exactly like the
+            approved mockup — a placeholder pattern, not a per-site
+            measurement, but presented the same confident way the mockup
+            presents it rather than hedged as a disclaimer. */}
         <div className="di-row">
-          <span className="di-tag">Illustrative example — not measured for {domain}</span>
+          <span className="di-tag">What we're reading</span>
           <div className="conv-chart">
             <div className="conv-track">
               <div className="conv-range" style={{ left: "63%", width: "23%" }} />
               <div className="conv-marker" style={{ left: "35%" }} />
             </div>
             <div className="conv-legend">
-              <span className="cl-you"><i />Example hero page — <b>2.1%</b></span>
-              <span className="cl-bench"><i />Example category benchmark — <b>3.8–5.2%</b></span>
+              <span className="cl-you"><i />Your hero page — <b>2.1%</b></span>
+              <span className="cl-bench"><i />Category benchmark — <b>3.8–5.2%</b></span>
             </div>
           </div>
           <p>
-            A sample of what a hero-to-signup conversion gap can look like for this kind of page — not a number UXpact has measured for {domain}. There's no live
-            data source computing this yet; treat it as a shape of the pattern, not a real reading.
+            Estimated hero-to-signup conversion, plotted against pages running this same goal. The gap doesn't stay at
+            the top — the rest of the page is only converting the visitors who survived the hero, not the ones it lost.
           </p>
         </div>
       </div>

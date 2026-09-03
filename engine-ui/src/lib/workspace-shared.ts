@@ -46,8 +46,8 @@ export const KEYFRAMES = `
 
 // Same Google Fonts import the approved mockup uses: Unbounded (headings /
 // CTAs), Space Grotesk (body), Space Mono (labels, mono UI text — URLs,
-// eyebrows, embed snippets). Loaded only inside WorkspaceShell so it never
-// touches EngineInput/LoadingState's existing light-theme pages.
+// eyebrows, embed snippets). Loaded only inside WorkspaceShell — EngineInput
+// is styled separately with its own inline tokens.
 export const FONT_LINK_HREF =
   "https://fonts.googleapis.com/css2?family=Unbounded:wght@500;680;700&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap";
 

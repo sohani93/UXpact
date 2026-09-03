@@ -34,15 +34,16 @@ const KEYFRAMES = `
 type EngineInputProps = {
   onSubmit: (formData: AuditRequestFormData) => void;
   initialForm?: AuditRequestFormData;
+  submitting?: boolean;
 };
 
-export default function EngineInput({ onSubmit, initialForm }: EngineInputProps) {
+export default function EngineInput({ onSubmit, initialForm, submitting }: EngineInputProps) {
   const [url, setUrl] = useState(initialForm?.url ?? "");
   const [email, setEmail] = useState(initialForm?.email ?? "");
   const [industry, setIndustry] = useState(initialForm?.industry || "saas");
   const [goal, setGoal] = useState(initialForm?.goal || "Signups");
 
-  const isReady = url.trim().length > 0 && email.trim().length > 0;
+  const isReady = url.trim().length > 0 && email.trim().length > 0 && !submitting;
 
   const handleSubmit = () => {
     if (!isReady) return;
@@ -56,13 +57,6 @@ export default function EngineInput({ onSubmit, initialForm }: EngineInputProps)
       <Nav />
       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px 24px", position: "relative", zIndex: 10 }}>
         <div style={{ width: "100%", maxWidth: 620 }}>
-          <div style={{ textAlign: "center", marginBottom: 26 }}>
-            <h1 style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 26, fontWeight: 700, color: "#fff", letterSpacing: "-0.5px", margin: "0 0 8px" }}>
-              What's your site <span style={{ background: `linear-gradient(100deg, ${T.forest}, ${T.mint})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>actually saying?</span>
-            </h1>
-            <p style={{ fontSize: 14, color: T.inkSoft, margin: 0 }}>Drop the link, tell us the goal — we'll read the story it's telling right now.</p>
-          </div>
-
           <div style={{ position: "relative", borderRadius: 16, padding: 1.5 }}>
             <div style={{
               content: "", position: "absolute", inset: 0, borderRadius: 16, padding: 1.5,
@@ -139,7 +133,7 @@ export default function EngineInput({ onSubmit, initialForm }: EngineInputProps)
                   border: "none", borderRadius: 10, padding: "13px 0", cursor: isReady ? "pointer" : "not-allowed",
                 }}
               >
-                Reveal the story →
+                {submitting ? "Reading the story…" : "Reveal the story →"}
               </button>
             </div>
           </div>

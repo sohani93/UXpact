@@ -1,21 +1,13 @@
-type NavProps = {
-  onNew?: () => void;
-  rightLabel?: string;
-};
-
-export default function Nav({ onNew, rightLabel = "New Audit" }: NavProps) {
+// Matches the mockup's .brand-corner exactly: logo + name, fixed top-left.
+// The mockup has no top nav links ("Home / Audits / New Audit") anywhere —
+// that was invented in an earlier pass and never existed in the reference.
+export default function Nav() {
   return (
-    <nav style={{ maxWidth: 1120, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 28px", position: "relative", zIndex: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-        <div style={{ width: 28, height: 28, borderRadius: 7, background: "linear-gradient(135deg,#186132,#14D571)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 8px rgba(20,140,89,0.2)" }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="12" cy="12" r="10" stroke="#fff" strokeWidth="2"/></svg>
-        </div>
-        <span style={{ fontFamily: "'Unbounded',sans-serif", fontSize: 16, fontWeight: 700, color: "#fff" }}>UXpact</span>
+    <div style={{ position: "fixed", top: 18, left: 22, display: "flex", alignItems: "center", gap: 8, zIndex: 30 }}>
+      <div style={{ width: 24, height: 24, borderRadius: 6, background: "linear-gradient(135deg,#1F8C4C,#14D571)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"/><circle cx="12" cy="12" r="9.5" stroke="#fff" strokeWidth="2"/></svg>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-        {["Home", "Audits"].map(t => <span key={t} style={{ fontSize: 13, color: "#79749A", fontWeight: 450, cursor: "pointer" }}>{t}</span>)}
-        {rightLabel && <span onClick={onNew} style={{ fontSize: 13, color: "#14D571", fontWeight: 600, cursor: "pointer" }}>{rightLabel}</span>}
-      </div>
-    </nav>
+      <span style={{ fontFamily: "'Unbounded',sans-serif", fontWeight: 680, fontSize: 14, color: "#fff" }}>UXpact</span>
+    </div>
   );
 }

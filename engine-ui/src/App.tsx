@@ -1,12 +1,9 @@
 import { useEffect, useState } from "react";
 import EngineInput from "./components/EngineInput";
-import LoadingState from "./components/LoadingState";
 import WorkspaceShell from "./pages/WorkspaceShell";
 import { isDestination } from "./lib/destinations";
 import { navigateTo } from "./lib/navigate";
 import type { AuditData, AuditRequestFormData } from "./lib/ui-types";
-
-type AuditMode = "input" | "loading";
 
 function getPath() { return window.location.pathname; }
 
@@ -45,24 +42,22 @@ function App() {
 }
 
 function AuditPage() {
-  const [mode, setMode] = useState<AuditMode>("input");
   const [form, setForm] = useState<AuditRequestFormData>({ name: "", email: "", url: "", industry: "saas", goal: "", challenge: "", focusAreas: [] });
-  const [pendingData, setPendingData] = useState<AuditData | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (formData: AuditRequestFormData) => {
     const rawUrl = formData.url.trim();
     const normalisedUrl = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
     const normalisedFormData = { ...formData, url: normalisedUrl };
     setForm(normalisedFormData);
-    setPendingData(null);
     sessionStorage.setItem("auditContext", JSON.stringify(normalisedFormData));
     try {
       const parsedUrl = new URL(normalisedUrl);
-      setMode("loading");
+      setSubmitting(true);
       const endpoint = import.meta.env.VITE_AUDIT_ENDPOINT ?? "https://oxminualycvnxofoevjs.supabase.co/functions/v1/run-audit";
       const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(normalisedFormData) });
       const json = await response.json();
-      if (!response.ok || json.error || !json.auditId) { setMode("input"); return; }
+      if (!response.ok || json.error || !json.auditId) { setSubmitting(false); return; }
       const auditData: AuditData = {
         auditId: json.auditId,
         url: normalisedUrl,
@@ -77,29 +72,11 @@ function AuditPage() {
         diagnosisError: json.diagnosisError ?? null,
       };
       sessionStorage.setItem(`audit:${auditData.auditId}`, JSON.stringify(auditData));
-      setPendingData(auditData);
-    } catch { setMode("input"); }
+      navigateTo(`/workspace/${auditData.auditId}/diagnosis`);
+    } catch { setSubmitting(false); }
   };
 
-  const handleAccess = () => {
-    if (!pendingData) return;
-    navigateTo(`/workspace/${pendingData.auditId}/diagnosis`);
-  };
-
-  return (
-    <>
-      {mode === "input" && <EngineInput onSubmit={handleSubmit} initialForm={form} />}
-      {mode === "loading" && (
-        <LoadingState
-          url={form.url}
-          goals={form.focusAreas}
-          auditData={pendingData}
-          onAccess={handleAccess}
-          onError={() => setMode("input")}
-        />
-      )}
-    </>
-  );
+  return <EngineInput onSubmit={handleSubmit} initialForm={form} submitting={submitting} />;
 }
 
 export default App;

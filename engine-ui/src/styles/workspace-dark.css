@@ -2,9 +2,9 @@
    Ported from the approved visual-direction mockup (see docs/adr/002-
    mockup-overrides-spec-diagnosis-visuals.md). Every rule is scoped under
    .workspace-frame so it only ever applies inside the five workspace routes
-   (Diagnosis/Blueprint/VisionPro/Pulse/Premium) + the dock nav — it must
-   never bleed into EngineInput/LoadingState, which keep the existing light
-   theme untouched. Custom property names (--canvas, --mint, etc.) and class
+   (Diagnosis/Blueprint/VisionPro/Pulse/Premium) + the dock nav — EngineInput
+   is styled separately with its own inline tokens. Custom property names
+   (--canvas, --mint, etc.) and class
    names match the mockup 1:1 so markup can be ported directly. */
 
 .workspace-frame {
