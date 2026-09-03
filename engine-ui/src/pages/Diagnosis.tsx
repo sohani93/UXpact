@@ -1,13 +1,11 @@
 // ─── DIAGNOSIS ("Story" in the approved mockup) ─────────────────────────
 // Reads directly from Supabase by audit_id: the `audits` row for
 // narrative_verdict / revenue_leak_estimate / current_archetype /
-// target_archetype, and the first real journey break (by stage order) for
-// the "Why it's costing you" row. Structure matches the mockup exactly —
-// verdict-short paragraph, then exactly two .di-row entries ("Why it's
-// costing you" and "What we're reading"), never one row per journey break.
-// The full itemized breakdown (every break, pinned, with its fix and AI
-// prompt) already lives on Conversion Blueprint — Diagnosis is the
-// narrative summary layer, not a second copy of Blueprint's pin list.
+// target_archetype. Diagnosis shows exactly three things, matching the
+// approved mockup image: the narrative verdict, the benchmark chart, and
+// the archetype carousel — no per-journey-break paragraph rows. The full
+// itemized breakdown (every break, pinned, with its fix and AI prompt)
+// lives on Conversion Blueprint, not here.
 import { useEffect, useState } from "react";
 import { getSupabase } from "../lib/supabase";
 import { JOURNEY_STAGE_ORDER, mapJourneyRows, sortByJourneyStage } from "../lib/workspace-shared";
@@ -22,22 +20,6 @@ type AuditRow = {
   current_archetype: string | null;
   target_archetype: string | null;
 };
-
-function ensureSentence(s: string): string {
-  const t = s.trim();
-  if (!t) return t;
-  return /[.!?]$/.test(t) ? t : `${t}.`;
-}
-
-// One real, concrete example — the mockup's "Why it's costing you" row is a
-// single behavioral-consequence paragraph, not an instruction to fix it
-// (that's Blueprint's job). Built from the highest-priority real break.
-function whyItsCostingYouProse(jb: JourneyBreak): string {
-  const parts: string[] = [];
-  if (jb.whatsHappening) parts.push(ensureSentence(jb.whatsHappening));
-  if (jb.reason) parts.push(ensureSentence(jb.reason));
-  return parts.join(" ");
-}
 
 export default function Diagnosis({ auditId }: { auditId: string }) {
   const [audit, setAudit] = useState<AuditRow | null>(null);
@@ -81,9 +63,8 @@ export default function Diagnosis({ auditId }: { auditId: string }) {
   }
 
   const domain = audit.domain || "yoursite.com";
-  const sortedBreaks = sortByJourneyStage(journeyBreaks);
-  const topBreak = sortedBreaks[0] ?? null;
-  const stagesWithBreaks = new Set(sortedBreaks.map((jb) => jb.journeyStage));
+  const stagesWithBreaks = new Set(sortByJourneyStage(journeyBreaks).map((jb) => jb.journeyStage));
+  const sameArchetype = !!audit.current_archetype && audit.current_archetype === audit.target_archetype;
 
   if (!audit.narrative_verdict) {
     return (
@@ -96,25 +77,27 @@ export default function Diagnosis({ auditId }: { auditId: string }) {
   return (
     <>
       <div className="panel-eyebrow">{domain}, right now</div>
-      <div className="shift-headline">
-        <span className="arc from">{audit.current_archetype ? `The ${audit.current_archetype}` : "Unclear story"}</span>
-        <span className="arrow">→</span>
-        <span className="arc to">{audit.target_archetype ? `The ${audit.target_archetype}` : "—"}</span>
-      </div>
-      <p className="verdict-short">{audit.narrative_verdict}</p>
+      {sameArchetype ? (
+        <div className="shift-headline">
+          <span className="arc to">The {audit.current_archetype}</span>
+        </div>
+      ) : (
+        <div className="shift-headline">
+          <span className="arc from">{audit.current_archetype ? `The ${audit.current_archetype}` : "Unclear story"}</span>
+          <span className="arrow">→</span>
+          <span className="arc to">{audit.target_archetype ? `The ${audit.target_archetype}` : "—"}</span>
+        </div>
+      )}
+      <p className="verdict-short">
+        {sameArchetype && (
+          <><b>{domain} already tells a {audit.current_archetype} story</b> — here's what's working and what would strengthen it. </>
+        )}
+        {audit.narrative_verdict}
+      </p>
 
       <div className="diagnosis-insights">
-        {topBreak && (
-          <div className="di-row warn">
-            <span className="di-tag">Why it's costing you</span>
-            <p>{whyItsCostingYouProse(topBreak)}</p>
-          </div>
-        )}
-
-        {/* Illustrative benchmark chart, styled and worded exactly like the
-            approved mockup — a placeholder pattern, not a per-site
-            measurement, but presented the same confident way the mockup
-            presents it rather than hedged as a disclaimer. */}
+        {/* Illustrative benchmark chart — a reference pattern, not a
+            per-site measurement, said once and plainly. */}
         <div className="di-row">
           <span className="di-tag">What we're reading</span>
           <div className="conv-chart">
@@ -127,10 +110,7 @@ export default function Diagnosis({ auditId }: { auditId: string }) {
               <span className="cl-bench"><i />Category benchmark — <b>3.8–5.2%</b></span>
             </div>
           </div>
-          <p>
-            Estimated hero-to-signup conversion, plotted against pages running this same goal. The gap doesn't stay at
-            the top — the rest of the page is only converting the visitors who survived the hero, not the ones it lost.
-          </p>
+          <p>Typical hero-to-signup range for pages like this — a reference pattern, not a live measurement of {domain} yet.</p>
         </div>
       </div>
 
