@@ -385,9 +385,21 @@ export default function Blueprint({ auditId }: { auditId: string }) {
           </button>
         </div>
 
+        {!generatedHtml && !generating && !genError && (
+          <div className="canvas-hint" style={{ marginBottom: 14 }}>
+            This is your editing canvas, not the rebuilt page — the blocks below are instructions for the rebuild, not final copy. Click Generate to build the real page. Full-page rebuilds work best on smaller pages; very large real-world sites may not finish in time.
+          </div>
+        )}
+
         {generatedHtml && generatedArchetype && archetype !== generatedArchetype && (
           <div className="canvas-hint" style={{ marginTop: -8, marginBottom: 14, color: "var(--violet)" }}>
             You picked {archetype} — the preview below is still {generatedArchetype}. Click Regenerate to rebuild it for {archetype}.
+          </div>
+        )}
+
+        {genError && (
+          <div className="ws-error" style={{ marginBottom: 16 }}>
+            {genError} <button className="drawer-btn" style={{ marginLeft: 10 }} onClick={handleGenerate}>Try again</button>
           </div>
         )}
 
@@ -432,12 +444,6 @@ export default function Blueprint({ auditId }: { auditId: string }) {
 
           <div className="fac-footer">© {realDomain}</div>
         </div>
-
-        {genError && (
-          <div className="ws-error" style={{ marginTop: 16 }}>
-            {genError} <button className="drawer-btn" style={{ marginLeft: 10 }} onClick={handleGenerate}>Try again</button>
-          </div>
-        )}
 
         {generating && (
           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "20px 0" }}>

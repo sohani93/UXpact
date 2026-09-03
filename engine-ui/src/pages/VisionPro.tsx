@@ -146,10 +146,17 @@ export default function VisionPro({ auditId }: { auditId: string }) {
       {rollbackError && <div className="ws-error" style={{ marginBottom: 16 }}>{rollbackError}</div>}
 
       {!isLive ? (
-        <div className="ws-empty">
-          <div className="t">Nothing live yet</div>
-          <div className="d">Deploy a rebuild from Conversion Blueprint first. Once one version is live, come back here to add a second (or further) version to test alongside it.</div>
-        </div>
+        <>
+          {/* Cosmetic placeholder — same shape the real weight bar takes once
+              a variant is live, muted so it reads as "not yet" not as data. */}
+          <div className="vp-bar" style={{ opacity: 0.35 }}>
+            <div className="vp-seg" style={{ width: "100%", background: "rgba(255,255,255,0.08)" }} />
+          </div>
+          <div className="ws-empty">
+            <div className="t">Nothing live yet</div>
+            <div className="d">Deploy a rebuild from Conversion Blueprint first. Once one version is live, come back here to add a second (or further) version to test alongside it.</div>
+          </div>
+        </>
       ) : (
         <>
           <div className="vp-bar">

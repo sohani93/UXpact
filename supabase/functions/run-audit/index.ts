@@ -1,6 +1,7 @@
 import { DOMParser } from "https://deno.land/x/deno_dom/deno-dom-wasm.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAi, AI_PROVIDER_LABEL } from "../_shared/ai-client.ts";
+import { ARCHETYPE_FRAMEWORK } from "../_shared/archetype-framework.ts";
 
 // ─── RUN-AUDIT ───
 // The AI is the diagnosis. No rule-based checks, no scores, no findings library.
@@ -222,7 +223,8 @@ const JOURNEY_SYSTEM_PROMPT =
   "AI coding tool to implement that fix on their own site (address it to their actual domain, be specific about " +
   "the change). Ground everything in the real content given — never invent facts about the page. Ground the " +
   "revenue_leak_estimate in the number and severity of the specific breaks found, not a generic guess — more and " +
-  "more severe breaks justify a higher bracket. Never use jargon.";
+  "more severe breaks justify a higher bracket. Never use jargon.\n\n" +
+  ARCHETYPE_FRAMEWORK;
 
 const JOURNEY_DIAGNOSIS_SCHEMA = {
   type: "object",
@@ -356,6 +358,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders, status: 204 });
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 
+  const t0 = Date.now();
   try {
     const payload = await req.json();
     if (!payload?.url) return jsonResponse({ error: "url required" }, 400);
@@ -367,7 +370,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       ? payload.industry : "saas";
     const goal: string = typeof payload.goal === "string" ? payload.goal : "";
 
+    const tFetchStart = Date.now();
     const fetchResult = await fetchHtml(targetUrl.toString());
+    console.log(`TIMING crawl_fetch_ms=${Date.now() - tFetchStart}`);
     if (!fetchResult.success) return jsonResponse({ error: "URL_UNREACHABLE", message: fetchResult.error }, 502);
 
     const { html } = fetchResult;
@@ -397,12 +402,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
       metaTitle: signals.title ?? "",
     };
 
+    const tAiStart = Date.now();
     const diagnosis = await diagnoseJourney({ signals, industry, goal, archetype });
+    console.log(`TIMING gemini_diagnosis_ms=${Date.now() - tAiStart}`);
     if (!diagnosis) {
       console.error(`run-audit: journey diagnosis failed for ${targetUrl.toString()} — see diagnoseJourney logs above.`);
     }
 
+    const tDbStart = Date.now();
     const auditId = await saveAudit({ url: targetUrl.toString(), domain: signals.domain, industry, goal, archetype, domData, rawHtml: html, diagnosis });
+    console.log(`TIMING db_write_ms=${Date.now() - tDbStart}`);
+    console.log(`TIMING total_backend_ms=${Date.now() - t0}`);
 
     return jsonResponse({
       auditId,
