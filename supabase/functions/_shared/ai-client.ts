@@ -67,17 +67,7 @@ function toGeminiSchema(schema: JsonSchema): JsonSchema {
   return convert(schema);
 }
 
-/**
- * The one entry point for every AI call in this codebase. Non-streaming:
- * Gemini's flash tier is fast enough that Supabase's ~150s per-invocation
- * ceiling isn't at risk the way it was with Anthropic's larger models, so
- * this stays simple rather than replicating the old SSE-streaming parser.
- */
-export async function callAi(opts: AiCallOptions): Promise<AiCallResult> {
-  if (!GEMINI_API_KEY) {
-    return { success: false, message: "GEMINI_API_KEY is not configured.", provider: "gemini", model: GEMINI_MODEL };
-  }
-
+async function callAiOnce(opts: AiCallOptions): Promise<AiCallResult & { status?: number }> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), opts.timeoutMs);
   try {
@@ -104,7 +94,7 @@ export async function callAi(opts: AiCallOptions): Promise<AiCallResult> {
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      return { success: false, message: `Gemini API returned ${response.status}: ${body.slice(0, 800)}`, provider: "gemini", model: GEMINI_MODEL };
+      return { success: false, message: `Gemini API returned ${response.status}: ${body.slice(0, 800)}`, provider: "gemini", model: GEMINI_MODEL, status: response.status };
     }
 
     const data = await response.json();
@@ -125,4 +115,48 @@ export async function callAi(opts: AiCallOptions): Promise<AiCallResult> {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * The one entry point for every AI call in this codebase. Non-streaming:
+ * Gemini's flash tier is fast enough that Supabase's ~150s per-invocation
+ * ceiling isn't at risk the way it was with Anthropic's larger models, so
+ * this stays simple rather than replicating the old SSE-streaming parser.
+ *
+ * One automatic retry on a 503 ("model overloaded"), a timeout, or a 429
+ * ("quota exceeded") — confirmed via real production calls that all three
+ * are genuine transient conditions on Gemini's free flash tier: a 503
+ * "high demand" response, a per-section generate-vision call that hit its
+ * own timeout under otherwise-identical conditions to a call that
+ * succeeded seconds later, and a 429 naming a free-tier request-rate
+ * quota ("limit: 5... Please retry in ~19s") from concurrent per-section
+ * calls. None of these should count as a real failure on the first
+ * occurrence. The 429 case waits out the API's own suggested retry delay
+ * (falling back to 20s) before retrying — an immediate retry would just
+ * hit the same still-open quota window again.
+ */
+export async function callAi(opts: AiCallOptions): Promise<AiCallResult> {
+  if (!GEMINI_API_KEY) {
+    return { success: false, message: "GEMINI_API_KEY is not configured.", provider: "gemini", model: GEMINI_MODEL };
+  }
+
+  const first = await callAiOnce(opts);
+  if (first.success) return first;
+
+  const isTimeout = first.message === "Request to Gemini timed out.";
+  const isRateLimited = first.status === 429;
+  if (first.status !== 503 && !isTimeout && !isRateLimited) return first;
+
+  if (isRateLimited) {
+    const match = first.message.match(/retry in ([\d.]+)s/i);
+    const suggestedMs = match ? Math.ceil(parseFloat(match[1]) * 1000) : 20_000;
+    await sleep(Math.min(suggestedMs, 25_000));
+  }
+
+  const retry = await callAiOnce(opts);
+  return retry;
 }

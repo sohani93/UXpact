@@ -34,16 +34,15 @@ const KEYFRAMES = `
 type EngineInputProps = {
   onSubmit: (formData: AuditRequestFormData) => void;
   initialForm?: AuditRequestFormData;
-  submitting?: boolean;
 };
 
-export default function EngineInput({ onSubmit, initialForm, submitting }: EngineInputProps) {
+export default function EngineInput({ onSubmit, initialForm }: EngineInputProps) {
   const [url, setUrl] = useState(initialForm?.url ?? "");
   const [email, setEmail] = useState(initialForm?.email ?? "");
   const [industry, setIndustry] = useState(initialForm?.industry || "saas");
   const [goal, setGoal] = useState(initialForm?.goal || "Signups");
 
-  const isReady = url.trim().length > 0 && email.trim().length > 0 && !submitting;
+  const isReady = url.trim().length > 0 && email.trim().length > 0;
 
   const handleSubmit = () => {
     if (!isReady) return;
@@ -133,7 +132,7 @@ export default function EngineInput({ onSubmit, initialForm, submitting }: Engin
                   border: "none", borderRadius: 10, padding: "13px 0", cursor: isReady ? "pointer" : "not-allowed",
                 }}
               >
-                {submitting ? "Reading the story…" : "Reveal the story →"}
+                Reveal the story →
               </button>
             </div>
           </div>

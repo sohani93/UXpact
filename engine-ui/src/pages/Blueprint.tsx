@@ -387,7 +387,7 @@ export default function Blueprint({ auditId }: { auditId: string }) {
 
         {!generatedHtml && !generating && !genError && (
           <div className="canvas-hint" style={{ marginBottom: 14 }}>
-            This is your editing canvas, not the rebuilt page — the blocks below are instructions for the rebuild, not final copy. Click Generate to build the real page. Full-page rebuilds work best on smaller pages; very large real-world sites may not finish in time.
+            This is your editing canvas, not the rebuilt page — the blocks below are instructions for the rebuild, not final copy. Click Generate to build the real page.
           </div>
         )}
 

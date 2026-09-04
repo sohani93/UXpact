@@ -1,20 +1,33 @@
 // ─── UXPACT VISION SANDBOX — generate-vision Edge Function ───
 // Step 1 of 2. Accepts a user's Vision sandbox choices, sends the real site
-// HTML through the Python DOM-fidelity microservice, then has Claude
-// rewrite/restructure it per those choices. Returns a jobId immediately and
-// does the actual work via EdgeRuntime.waitUntil — Supabase Edge Functions
-// have a hard ~150s per-invocation wall-clock limit (measured directly
-// against this project), and a full page rewrite with a 16k-token output
-// budget routinely runs close to or past that on its own. The frontend
-// polls vision_generation_jobs (RLS allows anon SELECT) for the draft, then
-// calls self-check-vision (step 2) to verify + revise it before ever
-// showing it to the user.
+// HTML through the Python DOM-fidelity microservice (which now tags every
+// top-level block with its classified data-uxpact-zone), then rewrites the
+// page ONE SECTION AT A TIME instead of asking the AI to reproduce the
+// whole document. Output per call is small and decoupled from the original
+// page's size — this is what makes generation actually finish within
+// Supabase's ~150s per-invocation ceiling for real-world pages (the old
+// whole-document approach failed on anything much over ~35KB of cleaned
+// HTML, which is most real sites; confirmed directly against
+// myworks.software at 159KB and basecamp.com at 47KB, both of which failed
+// every time under the old approach).
+//
+// Every section call receives the same chosen archetype and the same
+// archetype-framework reference text, so a switched archetype produces a
+// genuinely different, internally consistent full-page rewrite — not one
+// section changing in isolation while the rest keeps its old voice.
+//
+// Returns a jobId immediately and does the actual work via
+// EdgeRuntime.waitUntil. The frontend polls vision_generation_jobs (RLS
+// allows anon SELECT) for the draft, then calls self-check-vision (step 2)
+// to verify + revise it before ever showing it to the user.
 //
 // Never writes to vision_versions — saving a version is a separate,
 // explicit frontend action (POST to vision_versions directly via the client).
 
+import { DOMParser } from "https://deno.land/x/deno_dom/deno-dom-wasm.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAi } from "../_shared/ai-client.ts";
+import { ARCHETYPE_FRAMEWORK } from "../_shared/archetype-framework.ts";
 
 // ─── CORS ───
 const corsHeaders = {
@@ -40,16 +53,7 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const supabase = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
 
-const GENERATE_VISION_SYSTEM_PROMPT =
-  "You are a conversion-focused web designer and copywriter. You receive a real website's HTML and a set of instructions. " +
-  "You return a complete, valid, self-contained HTML document — the same site, restructured and rewritten per the instructions. " +
-  "Preserve all visual design, CSS, images, and layout. Only change structure and copy per the instructions. " +
-  "Never add fictional content. Never remove brand elements. Return only the HTML document, nothing else. " +
-  "The <head> of the input HTML may contain <link>/<style> tags that load web fonts (e.g. Google Fonts) or other " +
-  "external stylesheets the visual design depends on — carry every one of these over into your output's <head> " +
-  "exactly as given, even if the tags don't visibly relate to the sections you're restructuring. Iframes render this " +
-  "document in isolation and do not inherit any fonts or styles from elsewhere, so anything not explicitly included " +
-  "here will not render.";
+const NO_OP_INSTRUCTIONS = new Set(["", "keep this section's current copy.", "keep current section."]);
 
 interface GenerateVisionPayload {
   auditId?: string;
@@ -92,52 +96,52 @@ async function processWithMicroservice(rawHtml: string, sectionOrder: string[]):
   }
 }
 
-// ─── CLAUDE — FULL HTML REWRITE ───
-function looksLikeHtmlDocument(text: string): boolean {
-  const head = text.trim().slice(0, 200).toLowerCase();
-  return head.includes("<html") || head.includes("<!doctype") || head.includes("<body");
+// ─── CLAUDE — ONE SECTION AT A TIME ───
+const SECTION_SYSTEM_PROMPT =
+  "You are a conversion-focused web designer and copywriter. You are given ONE section (a single HTML fragment) " +
+  "from a larger real webpage, an instruction for what should change in that section, and the story archetype the " +
+  "whole rebuilt page is being written in. Every section of this page is being rewritten separately in this same " +
+  "archetype, so match its voice and intent exactly — this is one part of one internally consistent page, not an " +
+  "isolated rewrite. Preserve the fragment's HTML structure, tag names, classes, and attributes as closely as " +
+  "possible — only change text content and, where the instruction requires it, minor structural tweaks within this " +
+  "fragment (reordering or adding/removing a small number of child elements). Never invent facts not implied by the " +
+  "original content or the instruction. Return ONLY the rewritten HTML fragment — the same root element, nothing " +
+  "else: no markdown fences, no explanation, no surrounding document.\n\n" +
+  ARCHETYPE_FRAMEWORK;
+
+function looksLikeFragment(text: string): boolean {
+  const t = text.trim();
+  return t.startsWith("<") && t.endsWith(">") && t.length > 10;
 }
 
-// A document that starts like HTML but runs out of max_tokens mid-generation
-// still passes looksLikeHtmlDocument — checking only the closing tag catches
-// that silent truncation instead of saving a broken document as if it succeeded.
-function looksComplete(text: string): boolean {
-  const tail = text.trim().slice(-30).toLowerCase();
-  return tail.includes("</html>");
-}
-
-async function generateWithClaude(args: {
-  sanitizedHtml: string;
+async function generateSection(args: {
+  fragmentHtml: string;
+  zone: string;
+  instruction: string;
   archetype: string;
-  sectionOrder: string[];
-  copySelections: Record<string, string>;
 }): Promise<{ success: true; html: string } | { success: false; message: string }> {
-  const { sanitizedHtml, archetype, sectionOrder, copySelections } = args;
-  const userMessage = [
-    `Target story archetype: ${archetype || "not specified"}.`,
-    `Requested section order (top to bottom): ${sectionOrder.length ? sectionOrder.join(" → ") : "keep current order"}.`,
-    `Copy rewrite instructions per section:\n${JSON.stringify(copySelections, null, 2)}`,
-    `\nHere is the sanitised site HTML to restructure and rewrite:\n\n${sanitizedHtml}`,
-  ].join("\n\n");
+  const { fragmentHtml, zone, instruction, archetype } = args;
+  const userContent = JSON.stringify({
+    archetype: archetype || "not specified",
+    zone,
+    instruction,
+    original_fragment_html: fragmentHtml,
+  });
 
   const result = await callAi({
-    systemPrompt: GENERATE_VISION_SYSTEM_PROMPT,
-    userContent: userMessage,
-    maxOutputTokens: 16000,
-    timeoutMs: 130_000,
+    systemPrompt: SECTION_SYSTEM_PROMPT,
+    userContent,
+    maxOutputTokens: 8000,
+    timeoutMs: 60_000,
   });
   if (!result.success) {
-    console.error("generate-vision: AI call failed", result.message);
+    console.error(`generateSection[${zone}]: AI call failed`, result.message);
     return { success: false, message: result.message };
   }
   const html = result.text.trim();
-  if (!html || !looksLikeHtmlDocument(html)) {
-    console.error("generate-vision: malformed AI output", html.slice(0, 500));
-    return { success: false, message: "The AI did not return a valid HTML document." };
-  }
-  if (!looksComplete(html)) {
-    console.error("generate-vision: output truncated before completion (hit max_tokens)", html.length, html.slice(-200));
-    return { success: false, message: "Generation ran out of output budget before finishing the page — the result would have been a broken, cut-off document, so nothing was saved." };
+  if (!looksLikeFragment(html)) {
+    console.error(`generateSection[${zone}]: malformed output`, html.slice(0, 300));
+    return { success: false, message: "The AI did not return a valid HTML fragment for this section." };
   }
   return { success: true, html };
 }
@@ -164,37 +168,72 @@ async function runPipeline(jobId: string, payload: GenerateVisionPayload): Promi
     return fail(domResult.message);
   }
 
-  // A full-page rewrite asks Claude to reproduce the whole document back out, so
-  // output size scales with input size. Measured directly against this project:
-  // a 240KB real page timed out at effort:medium; a 60KB real page still timed out
-  // at effort:low. Output token throughput, not reasoning effort, is the real
-  // constraint here — a 60KB reproduction plus edits didn't finish emitting inside
-  // Supabase's ~150s per-invocation ceiling. Cut off well below that measured
-  // failure point, and fail fast with a specific reason rather than burning the
-  // full budget on a page that structurally can't finish.
-  const MAX_CLEANED_HTML_BYTES = 35_000;
-  if (domResult.html.length > MAX_CLEANED_HTML_BYTES) {
-    return fail(
-      `This page is too large for a full-page rebuild in one pass (${Math.round(domResult.html.length / 1000)}KB after cleanup, limit ${MAX_CLEANED_HTML_BYTES / 1000}KB). ` +
-      "Generating a complete rewritten document requires Claude to reproduce roughly as much output as it reads in, and a page this size can't finish within Supabase's per-invocation time limit.",
-    );
+  const doc = new DOMParser().parseFromString(domResult.html, "text/html");
+  if (!doc) {
+    return fail("Failed to parse the cleaned page HTML.");
+  }
+  // Re-serialize the whole document through deno_dom right away, and use
+  // THIS string (not the raw Python-service string) as the base for the
+  // string-replace assembly below. deno_dom's outerHTML serialization can
+  // differ from BeautifulSoup's (attribute quoting/ordering, whitespace),
+  // so matching el.outerHTML fragments against the original raw string
+  // silently fails to find a match — confirmed directly: two full test
+  // runs against myworks.software produced byte-identical output length
+  // and zero regenerated sections even when generateSection succeeded.
+  // Both fragment and base must come from the same serializer.
+  const documentHtml = doc.documentElement?.outerHTML ?? domResult.html;
+  const zoneElements = Array.from(doc.querySelectorAll("[data-uxpact-zone]"));
+  if (zoneElements.length === 0) {
+    return fail("Couldn't identify any page sections to rewrite in this page's structure.");
   }
 
-  const claudeResult = await generateWithClaude({
-    sanitizedHtml: domResult.html,
-    archetype,
-    sectionOrder,
-    copySelections,
+  const sections = zoneElements.map((el) => {
+    const zone = el.getAttribute("data-uxpact-zone") ?? "features";
+    return { zone, originalFragment: el.outerHTML, instruction: (copySelections[zone] ?? "").trim() };
   });
-  if (claudeResult.success === false) {
-    return fail(claudeResult.message);
+
+  // Sequential, not Promise.all — confirmed directly that firing every
+  // section's AI call concurrently trips Google AI Studio's free-tier
+  // quota (a real 429 naming "limit: 5" requests) well before a
+  // multi-section real page finishes, degrading most sections to
+  // "unchanged" even though generateSection itself works fine. One at a
+  // time stays under that ceiling; each call is still fast (a fragment,
+  // not a whole document), so this comfortably fits Supabase's ~150s
+  // per-invocation budget for the section counts real pages have.
+  const results: (typeof sections[number] & { finalFragment: string })[] = [];
+  for (const s of sections) {
+    if (NO_OP_INSTRUCTIONS.has(s.instruction.toLowerCase())) {
+      results.push({ ...s, finalFragment: s.originalFragment });
+      continue;
+    }
+    const gen = await generateSection({ fragmentHtml: s.originalFragment, zone: s.zone, instruction: s.instruction, archetype });
+    if (gen.success) {
+      results.push({ ...s, finalFragment: gen.html });
+    } else {
+      // Per-section failure degrades gracefully to the original fragment
+      // rather than failing the whole rebuild over one section.
+      console.error(`generate-vision: section "${s.zone}" kept unchanged after generation failure — ${gen.message}`);
+      results.push({ ...s, finalFragment: s.originalFragment });
+    }
   }
 
+  let finalHtml = documentHtml;
+  for (const r of results) {
+    if (r.finalFragment === r.originalFragment) continue;
+    if (!finalHtml.includes(r.originalFragment)) {
+      console.error(`generate-vision: section "${r.zone}" regenerated but its original fragment wasn't found in the assembled document — splice skipped, keeping this section unchanged.`);
+      continue;
+    }
+    finalHtml = finalHtml.replace(r.originalFragment, r.finalFragment);
+  }
+
+  const changedCount = results.filter((r) => r.finalFragment !== r.originalFragment).length;
   const { error: updateError } = await supabase
     .from("vision_generation_jobs")
-    .update({ status: "done", html: claudeResult.html, completed_at: new Date().toISOString() })
+    .update({ status: "done", html: finalHtml, completed_at: new Date().toISOString() })
     .eq("id", jobId);
   if (updateError) console.error("generate-vision: failed to write completed job", updateError.message);
+  else console.log(`generate-vision: assembled ${sections.length} sections, ${changedCount} regenerated, archetype=${archetype || "none"}`);
 }
 
 // ─── MAIN HANDLER ───
