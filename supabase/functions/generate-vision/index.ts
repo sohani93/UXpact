@@ -146,6 +146,86 @@ async function generateSection(args: {
   return { success: true, html };
 }
 
+// ─── CLAUDE — A GROUP OF BLOCKS SHARING ONE ZONE, IN ONE CALL ───
+// Real pages routinely have several blocks classified into the same zone —
+// myworks.software has 7 separate "features" blocks, all of which always
+// carry the exact same copySelections instruction (it's keyed by zone name,
+// not by individual block). Calling generateSection once per block meant
+// pages like that fired 7+ sequential Gemini requests for a single user
+// selection, and confirmed directly against production logs that this blew
+// through the free tier's request-rate quota and Supabase's own ~150s
+// invocation ceiling before the pipeline could finish (job
+// 1618e9cc-fc4c-4a46-84d4-db05d70573dc, 2026-09-04: repeated 429s across 7
+// features blocks, function shut down mid-pipeline with the job stuck at
+// "pending" forever). Batching every block of a shared zone into one
+// structured-output call collapses that back down to one Gemini request per
+// zone, regardless of how many blocks share it.
+const ZONE_GROUP_SYSTEM_PROMPT =
+  "You are a conversion-focused web designer and copywriter. You are given MULTIPLE HTML fragments — every block on " +
+  "this real webpage that was classified into the SAME zone type (for example, several distinct 'features' blocks) " +
+  "— one instruction that applies to all of them, and the story archetype the whole rebuilt page is being written " +
+  "in. Every zone of this page is being rewritten separately in this same archetype, so match its voice and intent " +
+  "exactly. Rewrite EACH fragment independently: keep its own original content, structure, tag names, classes, and " +
+  "attributes as closely as possible, changing only text content and, where the instruction requires it, minor " +
+  "structural tweaks within that fragment. Never invent facts not implied by the original content or the " +
+  "instruction, and never merge, drop, reorder, or add fragments — return exactly as many rewritten fragments as " +
+  "you were given, in the same order, one full HTML fragment per array item.\n\n" +
+  ARCHETYPE_FRAMEWORK;
+
+const ZONE_GROUP_SCHEMA = {
+  type: "object",
+  properties: {
+    fragments: { type: "array", items: { type: "string" } },
+  },
+  required: ["fragments"],
+};
+
+function looksLikeFragmentList(value: unknown, expectedCount: number): value is string[] {
+  return Array.isArray(value) && value.length === expectedCount && value.every((f) => typeof f === "string" && looksLikeFragment(f));
+}
+
+async function generateZoneGroup(args: {
+  fragments: string[];
+  zone: string;
+  instruction: string;
+  archetype: string;
+}): Promise<{ success: true; fragments: string[] } | { success: false; message: string }> {
+  const { fragments, zone, instruction, archetype } = args;
+  const userContent = JSON.stringify({
+    archetype: archetype || "not specified",
+    zone,
+    instruction,
+    original_fragments_html: fragments,
+  });
+
+  const result = await callAi({
+    systemPrompt: ZONE_GROUP_SYSTEM_PROMPT,
+    userContent,
+    // Scales with how many fragments are bundled into this one call — a
+    // single shared budget would truncate every fragment past the first.
+    maxOutputTokens: Math.min(8000 * fragments.length, 32_000),
+    timeoutMs: 90_000,
+    jsonSchema: ZONE_GROUP_SCHEMA,
+  });
+  if (!result.success) {
+    console.error(`generateZoneGroup[${zone}]: AI call failed`, result.message);
+    return { success: false, message: result.message };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(result.text);
+  } catch {
+    console.error(`generateZoneGroup[${zone}]: response was not valid JSON`, result.text.slice(0, 300));
+    return { success: false, message: "The AI did not return valid JSON for this group of sections." };
+  }
+  const candidateFragments = (parsed as { fragments?: unknown } | null)?.fragments;
+  if (!looksLikeFragmentList(candidateFragments, fragments.length)) {
+    console.error(`generateZoneGroup[${zone}]: malformed or mismatched fragment count (expected ${fragments.length})`, JSON.stringify(parsed).slice(0, 300));
+    return { success: false, message: `The AI did not return ${fragments.length} valid HTML fragments for this group of sections.` };
+  }
+  return { success: true, fragments: candidateFragments };
+}
+
 // ─── PIPELINE ───
 async function runPipeline(jobId: string, payload: GenerateVisionPayload): Promise<void> {
   if (!supabase) return;
@@ -192,30 +272,50 @@ async function runPipeline(jobId: string, payload: GenerateVisionPayload): Promi
     return { zone, originalFragment: el.outerHTML, instruction: (copySelections[zone] ?? "").trim() };
   });
 
-  // Sequential, not Promise.all — confirmed directly that firing every
-  // section's AI call concurrently trips Google AI Studio's free-tier
-  // quota (a real 429 naming "limit: 5" requests) well before a
-  // multi-section real page finishes, degrading most sections to
-  // "unchanged" even though generateSection itself works fine. One at a
-  // time stays under that ceiling; each call is still fast (a fragment,
-  // not a whole document), so this comfortably fits Supabase's ~150s
-  // per-invocation budget for the section counts real pages have.
-  const results: (typeof sections[number] & { finalFragment: string })[] = [];
-  for (const s of sections) {
-    if (NO_OP_INSTRUCTIONS.has(s.instruction.toLowerCase())) {
-      results.push({ ...s, finalFragment: s.originalFragment });
+  // Sequential across zones, not Promise.all — confirmed directly that
+  // firing AI calls concurrently trips Google AI Studio's free-tier quota
+  // well before a multi-section real page finishes. Within a zone, every
+  // block sharing that zone always carries the same copySelections
+  // instruction (it's keyed by zone name, not by individual block), so
+  // they're batched into ONE generateZoneGroup call instead of one call
+  // per block — a real page can have several blocks in the same zone
+  // (myworks.software has 7 "features" blocks), and one call per block
+  // was confirmed to blow through both the free-tier rate limit and
+  // Supabase's ~150s invocation ceiling before finishing.
+  const zoneOrder: string[] = [];
+  const zoneIndices = new Map<string, number[]>();
+  sections.forEach((s, i) => {
+    if (!zoneIndices.has(s.zone)) {
+      zoneIndices.set(s.zone, []);
+      zoneOrder.push(s.zone);
+    }
+    zoneIndices.get(s.zone)!.push(i);
+  });
+
+  const finalFragments: string[] = sections.map((s) => s.originalFragment);
+  for (const zone of zoneOrder) {
+    const indices = zoneIndices.get(zone)!;
+    const instruction = sections[indices[0]].instruction;
+    if (NO_OP_INSTRUCTIONS.has(instruction.toLowerCase())) continue; // stays unchanged for every block in this zone
+
+    if (indices.length === 1) {
+      const s = sections[indices[0]];
+      const gen = await generateSection({ fragmentHtml: s.originalFragment, zone, instruction, archetype });
+      if (gen.success) finalFragments[indices[0]] = gen.html;
+      else console.error(`generate-vision: section "${zone}" kept unchanged after generation failure — ${gen.message}`);
       continue;
     }
-    const gen = await generateSection({ fragmentHtml: s.originalFragment, zone: s.zone, instruction: s.instruction, archetype });
+
+    const fragments = indices.map((i) => sections[i].originalFragment);
+    const gen = await generateZoneGroup({ fragments, zone, instruction, archetype });
     if (gen.success) {
-      results.push({ ...s, finalFragment: gen.html });
+      indices.forEach((i, k) => { finalFragments[i] = gen.fragments[k]; });
     } else {
-      // Per-section failure degrades gracefully to the original fragment
-      // rather than failing the whole rebuild over one section.
-      console.error(`generate-vision: section "${s.zone}" kept unchanged after generation failure — ${gen.message}`);
-      results.push({ ...s, finalFragment: s.originalFragment });
+      console.error(`generate-vision: zone "${zone}" (${fragments.length} blocks) kept unchanged after generation failure — ${gen.message}`);
     }
   }
+
+  const results = sections.map((s, i) => ({ ...s, finalFragment: finalFragments[i] }));
 
   let finalHtml = documentHtml;
   for (const r of results) {

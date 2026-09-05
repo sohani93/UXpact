@@ -3,6 +3,65 @@
 One entry per completed step: what was built, how it was verified on real
 production, what changed, timestamp. Replaces the prior Build Log.
 
+**Known constraint:** Google AI Studio's free-tier Gemini key has a real,
+low request-rate quota (confirmed in production: `limit: 20` requests,
+free-tier 429s under normal load) — any pipeline firing many sequential AI
+calls for one user action (e.g. one call per DOM block) can exhaust it and
+outlast Supabase's ~150s edge function invocation ceiling; batch same-type
+work into fewer calls where possible, and expect this ceiling to lift only
+with a paid tier.
+
+---
+
+## 2026-09-04 — Checkpoint 1 close-out: per-section Blueprint generation, 503 retry, loading visual
+
+**What was built:** Closed Checkpoint 1. `generate-vision` now generates
+each DOM section separately (solving the whole-document size/timeout
+ceiling), with every call sharing the chosen archetype + archetype
+framework so a switched archetype produces one internally consistent
+full-page rewrite. `ai-client`'s `callAi` retries once on a 503, a timeout,
+or a 429. The audit-processing loading screen's node-map animation was
+replaced with `SignalGrid` (full-bleed, mint/blue-violet ambient dot field).
+On testing, real DOM blocks sharing one zone (myworks.software has 7
+"features" blocks) were found to each fire their own sequential AI call,
+which combined with the free-tier ceiling above caused a real stuck job
+(`1618e9cc-fc4c-4a46-84d4-db05d70573dc`) that outlasted Supabase's
+invocation ceiling — fixed by batching every block sharing a zone into one
+`generateZoneGroup` structured-output call instead of one call per block.
+
+**How verified on real production:** myworks.software, audit `af4d1c13`.
+Job `4ab013a0` (before the token-budget fix) completed with real assembled
+HTML (10 sections identified, 1 regenerated) but the hero section silently
+truncated at a 3000-token output cap on this page's deeply-nested Elementor
+markup — raised to 8000 and confirmed against real Gemini `finishReason`/
+malformed-output logs. Job `1618e9cc` then surfaced the same-zone fan-out
+problem directly via real 429/503 log lines and a `shutdown` event with no
+terminal DB write, which motivated the zone-batching fix above. Re-ran the
+identical myworks.software/Ruler job after the fix (job
+`5e7ca5cf-2875-40c1-8f74-1262294a1761`): completed in ~35s with zero
+429/503 errors logged for the "features" zone (previously 7 separate calls,
+now 1), versus 2-4 minutes and repeated rate-limit failures before. Content
+note: only 1 of the 7 features blocks came back meaningfully different from
+its original text in both this run and the earlier per-block run — the
+same pattern under both approaches, so not a batching regression, but
+worth a closer look separately if it recurs against other pages.
+`SignalGrid`/`LoadingState` visual spec verified by direct code read
+against the reference image (dot spacing, colors, full-bleed layout,
+preserved heading/status line).
+
+**What changed:**
+- `supabase/functions/generate-vision/index.ts`: per-section generation,
+  shared archetype+framework context, sequential zone processing, new
+  `generateZoneGroup` batched call for same-zone blocks.
+- `supabase/functions/_shared/ai-client.ts`: `callAi` retry extended to
+  429 (API-suggested backoff) alongside the existing 503/timeout retry.
+- `vision-service/api/index.py`: tags every top-level block with its
+  classified `data-uxpact-zone` (deployed to Vercel production).
+- New: `engine-ui/src/components/SignalGrid.tsx`, `LoadingState.tsx`;
+  `App.tsx` gained an input/loading mode split.
+
+**Timestamp:** 2026-09-04.
+
 ---
 
 ## 2026-09-03 — Real-deploy bug pass: RLS gap, intake theme, archetype-chip clarity
