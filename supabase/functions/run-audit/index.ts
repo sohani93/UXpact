@@ -25,6 +25,7 @@ type JourneyStage = "arrival" | "understanding" | "trust-building" | "decision" 
 const JOURNEY_STAGES: JourneyStage[] = ["arrival", "understanding", "trust-building", "decision", "action"];
 
 interface JourneyBreak {
+  page: string;
   journey_stage: JourneyStage;
   element: string;
   whats_happening: string;
@@ -341,28 +342,33 @@ function suggestTargetArchetype(industry: Industry, goal: string): Archetype {
 
 const JOURNEY_SYSTEM_PROMPT =
   "You are UXpact's UX intelligence engine. You read a real site the way a visitor would and tell the story of what " +
-  "actually happens to them. The site's story is the visitor's journey — arrival, understanding, trust-building, " +
-  "decision, action — not a brand-personality label. Archetype (current vs target) is only the lens for explaining " +
-  "WHY a stage breaks down, never the diagnosis itself. Never say a site 'is' or 'should be' an archetype as the " +
-  "verdict — describe where and why the visitor's journey breaks down. Every journey_break must be anchored to " +
-  "exactly one of the five journey stages, name what's happening, what should be happening instead, and why. " +
-  "For each break also write: a concrete recommended fix, and a ready-to-use AI prompt someone could paste into an " +
-  "AI coding tool to implement that fix on their own site (address it to their actual domain, be specific about " +
-  "the change). Ground everything in the real content given — never invent facts about the page. Ground the " +
-  "revenue_leak_estimate in the number and severity of the specific breaks found, not a generic guess — more and " +
-  "more severe breaks justify a higher bracket. Never use jargon.\n\n" +
+  "actually happens to them, reasoning across every page you're given — not just the one they landed on. A break can " +
+  "live on any of these pages (a weak pricing page is as real a break as a weak hero), and the SAME journey can span " +
+  "several of them (arrival on the entry page, decision on the pricing page). The site's story is the visitor's " +
+  "journey — arrival, understanding, trust-building, decision, action — not a brand-personality label. Archetype " +
+  "(current vs target) is only the lens for explaining WHY a stage breaks down, never the diagnosis itself. Never " +
+  "say a site 'is' or 'should be' an archetype as the verdict — describe where and why the visitor's journey breaks " +
+  "down. Every journey_break must name the exact page URL (copied verbatim from the pages you were given) it was " +
+  "found on, be anchored to exactly one of the five journey stages, name what's happening, what should be happening " +
+  "instead, and why. For each break also write: a concrete recommended fix, and a ready-to-use AI prompt someone " +
+  "could paste into an AI coding tool to implement that fix on their own site (address it to their actual domain, " +
+  "be specific about the change and which page it's on). Ground everything in the real content given — never " +
+  "invent facts about any page. Ground the revenue_leak_estimate in the number and severity of the specific breaks " +
+  "found across all pages, not a generic guess — more and more severe breaks justify a higher bracket. Never use " +
+  "jargon.\n\n" +
   ARCHETYPE_FRAMEWORK;
 
 const JOURNEY_DIAGNOSIS_SCHEMA = {
   type: "object",
   properties: {
-    narrative_verdict: { type: "string", description: "2-3 sentences telling the story of what happens to a visitor on this page. Always shown first." },
+    narrative_verdict: { type: "string", description: "2-3 sentences telling the story of what happens to a visitor across the site. Always shown first." },
     revenue_leak_estimate: { type: "string", enum: ["£480/mo", "£1,100/mo", "£2,800/mo", "£5,200/mo"] },
     journey_breaks: {
       type: "array",
       items: {
         type: "object",
         properties: {
+          page: { type: "string", description: "The exact URL (copied from the pages given) this break was found on." },
           journey_stage: { type: "string", enum: JOURNEY_STAGES },
           element: { type: "string", description: "The specific page element this break is about, e.g. 'Hero headline' or 'Primary CTA'." },
           whats_happening: { type: "string" },
@@ -371,7 +377,7 @@ const JOURNEY_DIAGNOSIS_SCHEMA = {
           fix: { type: "string", description: "A concrete recommended fix." },
           ai_prompt: { type: "string", description: "A ready-to-use prompt for an AI coding tool to implement the fix on the real site." },
         },
-        required: ["journey_stage", "element", "whats_happening", "what_should_happen", "reason", "fix", "ai_prompt"],
+        required: ["page", "journey_stage", "element", "whats_happening", "what_should_happen", "reason", "fix", "ai_prompt"],
         additionalProperties: false,
       },
     },
@@ -380,19 +386,11 @@ const JOURNEY_DIAGNOSIS_SCHEMA = {
   additionalProperties: false,
 };
 
-async function diagnoseJourney(args: {
-  signals: PageSignals;
-  industry: Industry;
-  goal: string;
-  archetype: { current: Archetype; target: Archetype };
-}): Promise<JourneyDiagnosis | null> {
-  const { signals, industry, goal, archetype } = args;
-  const userPayload = {
-    current_archetype: archetype.current,
-    target_archetype: archetype.target,
-    industry,
-    goal,
-    domain: signals.domain,
+function pageSignalsForAi(page: CrawledPage) {
+  const { signals } = page;
+  return {
+    url: page.url,
+    page_type: page.category,
     title: signals.title,
     meta_description: signals.metaDescription,
     h1: signals.h1Text,
@@ -407,6 +405,24 @@ async function diagnoseJourney(args: {
     images_count: signals.imagesCount,
     body_word_count: signals.bodyWordCount,
     you_we_ratio: Number(signals.youWeRatio.toFixed(2)),
+  };
+}
+
+async function diagnoseJourney(args: {
+  pages: CrawledPage[];
+  industry: Industry;
+  goal: string;
+  archetype: { current: Archetype; target: Archetype };
+}): Promise<JourneyDiagnosis | null> {
+  const { pages, industry, goal, archetype } = args;
+  const validUrls = new Set(pages.map((p) => p.url));
+  const userPayload = {
+    current_archetype: archetype.current,
+    target_archetype: archetype.target,
+    industry,
+    goal,
+    domain: pages[0].signals.domain,
+    pages: pages.map(pageSignalsForAi),
   };
 
   const result = await callAi({
@@ -423,6 +439,13 @@ async function diagnoseJourney(args: {
   try {
     const parsed = JSON.parse(result.text) as JourneyDiagnosis;
     if (!Array.isArray(parsed.journey_breaks)) return null;
+    // A break naming a page URL outside what was actually given is a
+    // hallucination, not a real finding — fall back to the entry page
+    // rather than silently trusting an invented URL.
+    parsed.journey_breaks = parsed.journey_breaks.map((b) => ({
+      ...b,
+      page: validUrls.has(b.page) ? b.page : pages[0].url,
+    }));
     return parsed;
   } catch (error) {
     console.error("diagnoseJourney: failed to parse AI response as JSON", error instanceof Error ? error.message : error);
@@ -439,9 +462,10 @@ async function saveAudit(args: {
   domData: Record<string, unknown>;
   rawHtml: string;
   diagnosis: JourneyDiagnosis | null;
+  crawledPages: CrawledPage[];
 }): Promise<string | null> {
   if (!supabase) return null;
-  const { url, domain, industry, goal, archetype, domData, rawHtml, diagnosis } = args;
+  const { url, domain, industry, goal, archetype, domData, rawHtml, diagnosis, crawledPages } = args;
 
   const { data: auditRow, error: auditError } = await supabase
     .from("audits")
@@ -454,6 +478,7 @@ async function saveAudit(args: {
       narrative_verdict: diagnosis?.narrative_verdict ?? null,
       revenue_leak_estimate: diagnosis?.revenue_leak_estimate ?? null,
       ai_provider: diagnosis ? AI_PROVIDER_LABEL : null,
+      pages_crawled: crawledPages.map((p) => ({ url: p.url, category: p.category, matchedOn: p.matchedOn })),
     })
     .select("id")
     .single();
@@ -473,6 +498,7 @@ async function saveAudit(args: {
       reason: b.reason,
       fix: b.fix,
       ai_prompt: b.ai_prompt,
+      page_url: b.page,
     }));
     const { error: journeyError } = await supabase.from("archetype_consistency_scores").insert(rows);
     if (journeyError) console.error("Failed to save journey breaks:", journeyError.message);
@@ -534,16 +560,27 @@ Deno.serve(async (req: Request): Promise<Response> => {
     };
 
     const tAiStart = Date.now();
-    const diagnosis = await diagnoseJourney({ signals, industry, goal, archetype });
+    const diagnosis = await diagnoseJourney({ pages: crawledPages, industry, goal, archetype });
     console.log(`TIMING gemini_diagnosis_ms=${Date.now() - tAiStart}`);
     if (!diagnosis) {
       console.error(`run-audit: journey diagnosis failed for ${targetUrl.toString()} — see diagnoseJourney logs above.`);
     }
 
     const tDbStart = Date.now();
-    const auditId = await saveAudit({ url: targetUrl.toString(), domain: signals.domain, industry, goal, archetype, domData, rawHtml: html, diagnosis });
+    const auditId = await saveAudit({ url: targetUrl.toString(), domain: signals.domain, industry, goal, archetype, domData, rawHtml: html, diagnosis, crawledPages });
     console.log(`TIMING db_write_ms=${Date.now() - tDbStart}`);
     console.log(`TIMING total_backend_ms=${Date.now() - t0}`);
+
+    const journeyBreaksMapped = diagnosis?.journey_breaks.map((b) => ({
+      page: b.page,
+      journeyStage: b.journey_stage,
+      element: b.element,
+      whatsHappening: b.whats_happening,
+      whatShouldHappen: b.what_should_happen,
+      reason: b.reason,
+      fix: b.fix,
+      aiPrompt: b.ai_prompt,
+    })) ?? null;
 
     return jsonResponse({
       auditId,
@@ -553,15 +590,26 @@ Deno.serve(async (req: Request): Promise<Response> => {
       narrativeVerdict: diagnosis?.narrative_verdict ?? null,
       revenueLeakEstimate: diagnosis?.revenue_leak_estimate ?? null,
       aiProvider: diagnosis ? AI_PROVIDER_LABEL : null,
-      journeyBreaks: diagnosis?.journey_breaks.map((b) => ({
-        journeyStage: b.journey_stage,
-        element: b.element,
-        whatsHappening: b.whats_happening,
-        whatShouldHappen: b.what_should_happen,
-        reason: b.reason,
-        fix: b.fix,
-        aiPrompt: b.ai_prompt,
-      })) ?? null,
+      journeyBreaks: journeyBreaksMapped,
+      pages: crawledPages.map((p) => ({
+        url: p.url,
+        category: p.category,
+        matchedOn: p.matchedOn,
+        domData: {
+          h1Text: p.signals.h1Text || p.signals.title || p.signals.domain,
+          navLinks: p.signals.navLinks,
+          ctaTexts: p.signals.ctaTexts,
+          h2Texts: p.signals.h2Texts,
+          paragraphTexts: p.signals.paragraphTexts,
+          testimonialTexts: p.signals.testimonialTexts,
+          trustLogoLabels: p.signals.trustLogoLabels,
+          pricingTiers: p.signals.pricingTiers,
+          imagesCount: p.signals.imagesCount,
+          hasForm: p.signals.hasForm,
+          metaTitle: p.signals.title ?? "",
+        },
+        journeyBreaks: journeyBreaksMapped?.filter((b) => b.page === p.url) ?? null,
+      })),
       diagnosisError: diagnosis ? null : "AI diagnosis failed — see server logs. No narrative verdict, journey breakdown, or revenue estimate is available for this run.",
     }, 200);
   } catch (error) {
