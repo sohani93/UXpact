@@ -164,6 +164,133 @@ function extractSignals(doc: Document, url: URL): PageSignals {
   };
 }
 
+// ─── SITE-WIDE CRAWL (Checkpoint 2) ───
+// Diagnosis should reason about more than the single submitted page, but
+// following every link on a real site would multiply the AI calls this
+// pipeline makes per audit — the same free-tier throughput ceiling
+// documented in BUILD_BOOK.md that generate-vision hit directly. Instead:
+// always crawl the submitted entry page, then match a small, fixed list of
+// high-signal page types by URL path or link text — never every linked
+// page — capped at MAX_CRAWL_PAGES total (entry page included). A site
+// that matches fewer of these types just gets fewer pages; never padded
+// with irrelevant ones to hit the cap.
+const MAX_CRAWL_PAGES = 5; // one place to edit later if the AI provider's throughput changes
+
+type CrawlCategory = "pricing" | "demo" | "product" | "blog" | "about";
+
+// Priority order: which categories survive if a site matches more of them
+// than MAX_CRAWL_PAGES - 1 (the entry page always takes one slot) has room
+// for.
+const CATEGORY_PRIORITY: CrawlCategory[] = ["pricing", "demo", "product", "blog", "about"];
+
+const CATEGORY_PATTERNS: Record<CrawlCategory, RegExp> = {
+  pricing: /\bpricing\b|\bplans?\b/i,
+  demo: /\bdemo\b/i,
+  product: /\bproducts?\b|\bfeatures?\b/i,
+  blog: /\bblog\b|\binsights?\b/i,
+  about: /\babout\b|\bcontact\b/i,
+};
+
+interface CrawlCandidate {
+  url: string;
+  path: string;
+  text: string;
+}
+
+function collectSameOriginLinks(doc: Document, base: URL): CrawlCandidate[] {
+  const seen = new Set<string>();
+  const baseNormalized = base.toString().replace(/\/$/, "");
+  const out: CrawlCandidate[] = [];
+  for (const a of Array.from(doc.querySelectorAll("a[href]"))) {
+    const href = a.getAttribute("href");
+    if (!href) continue;
+    let resolved: URL;
+    try { resolved = new URL(href, base); } catch { continue; }
+    if (resolved.hostname !== base.hostname) continue;
+    if (resolved.protocol !== "http:" && resolved.protocol !== "https:") continue;
+    resolved.hash = "";
+    const normalized = resolved.toString().replace(/\/$/, "");
+    if (normalized === baseNormalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push({ url: resolved.toString(), path: resolved.pathname, text: cleanText(a.textContent) });
+  }
+  return out;
+}
+
+function matchCategory(candidate: CrawlCandidate): CrawlCategory | null {
+  const haystack = `${candidate.path} ${candidate.text}`.toLowerCase();
+  for (const category of CATEGORY_PRIORITY) {
+    if (CATEGORY_PATTERNS[category].test(haystack)) return category;
+  }
+  return null;
+}
+
+// A "blog" link that looks like the index itself (e.g. "/blog", "/blog/")
+// isn't a post — resolve to the most recent one by fetching the index and
+// taking the first link that itself matches the blog pattern at a deeper
+// path than the index. Falls back to the index page if no deeper post link
+// is found (an honest result, not a failure — some blogs list posts inline
+// on the index with no separate post URLs).
+async function resolveBlogPost(candidate: CrawlCandidate, base: URL): Promise<CrawlCandidate> {
+  const indexSegments = candidate.path.split("/").filter(Boolean);
+  if (indexSegments.length > 1) return candidate; // already looks like a specific post, not an index
+
+  const indexFetch = await fetchHtml(candidate.url);
+  if (!indexFetch.success) return candidate;
+  const indexDoc = new DOMParser().parseFromString(indexFetch.html, "text/html");
+  if (!indexDoc) return candidate;
+
+  const links = collectSameOriginLinks(indexDoc, base);
+  const post = links.find((l) => {
+    const segs = l.path.split("/").filter(Boolean);
+    return CATEGORY_PATTERNS.blog.test(`${l.path} ${l.text}`.toLowerCase()) && segs.length > indexSegments.length;
+  });
+  return post ?? candidate;
+}
+
+interface CrawledPage {
+  category: "entry" | CrawlCategory;
+  url: string;
+  matchedOn: string; // human-readable reason a page was selected, for real-test transparency
+  signals: PageSignals;
+}
+
+async function crawlSite(entryUrl: URL, entrySignals: PageSignals, entryDoc: Document): Promise<CrawledPage[]> {
+  const pages: CrawledPage[] = [{ category: "entry", url: entryUrl.toString(), matchedOn: "submitted entry page", signals: entrySignals }];
+
+  const candidates = collectSameOriginLinks(entryDoc, entryUrl);
+  const matchedByCategory = new Map<CrawlCategory, CrawlCandidate>();
+  for (const candidate of candidates) {
+    const category = matchCategory(candidate);
+    if (category && !matchedByCategory.has(category)) matchedByCategory.set(category, candidate);
+  }
+
+  const slotsAvailable = MAX_CRAWL_PAGES - 1;
+  const selectedCategories = CATEGORY_PRIORITY.filter((c) => matchedByCategory.has(c)).slice(0, slotsAvailable);
+
+  for (const category of selectedCategories) {
+    let candidate = matchedByCategory.get(category)!;
+    if (category === "blog") candidate = await resolveBlogPost(candidate, entryUrl);
+
+    const fetchResult = await fetchHtml(candidate.url);
+    if (!fetchResult.success) {
+      console.log(`crawl: skipped ${category} page ${candidate.url} — fetch failed: ${fetchResult.error}`);
+      continue;
+    }
+    const doc = new DOMParser().parseFromString(fetchResult.html, "text/html");
+    if (!doc) {
+      console.log(`crawl: skipped ${category} page ${candidate.url} — failed to parse HTML`);
+      continue;
+    }
+    const signals = extractSignals(doc, new URL(candidate.url));
+    const reason = candidate.text ? `link text "${candidate.text}"` : `path "${candidate.path}"`;
+    pages.push({ category, url: candidate.url, matchedOn: reason, signals });
+  }
+
+  console.log(`crawl: selected ${pages.length}/${MAX_CRAWL_PAGES} pages — ${pages.map((p) => `${p.category}: ${p.url} (${p.matchedOn})`).join(" | ")}`);
+  return pages;
+}
+
 // Archetype inference is signal-reading, not a rule-based scoring system — it's the
 // input the AI reasons from, same as the rest of these signals. Kept lightweight.
 function inferCurrentArchetype(signals: PageSignals): Archetype {
@@ -387,6 +514,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const signals = extractSignals(doc, targetUrl);
     const archetype = { current: inferCurrentArchetype(signals), target: suggestTargetArchetype(industry, goal) };
+
+    const tCrawlStart = Date.now();
+    const crawledPages = await crawlSite(targetUrl, signals, doc);
+    console.log(`TIMING site_crawl_ms=${Date.now() - tCrawlStart} pages_crawled=${crawledPages.length}`);
 
     const domData = {
       h1Text: signals.h1Text || signals.title || signals.domain,
